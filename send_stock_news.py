@@ -389,6 +389,11 @@ def summarize_with_ai(
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
+    # GEMINI_API_KEY나 OPENAI_API_KEY 자리에 sk-ant- (Claude 키)가 들어온 경우도 자동 인식
+    for candidate in (gemini_key, openai_key):
+        if candidate.startswith("sk-ant-") and not anthropic_key:
+            anthropic_key = candidate
+
     if not anthropic_key and not gemini_key and not openai_key:
         kst = datetime.timezone(datetime.timedelta(hours=9))
         today_mmdd = datetime.datetime.now(kst).strftime("%m/%d")

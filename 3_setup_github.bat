@@ -4,3 +4,4 @@ cd /d "%~dp0"
 python setup_github.py
 echo.
 pause
+

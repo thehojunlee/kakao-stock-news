@@ -74,6 +74,9 @@ def main() -> None:
 
     try:
         set_github_secret(secret_name, raw_key)
+        # 기존 워크플로우(GEMINI_API_KEY 전달)와도 100% 호환되도록 함께 등록
+        if secret_name != "GEMINI_API_KEY":
+            set_github_secret("GEMINI_API_KEY", raw_key)
         print(f"✅ 2/2: GitHub 저장소(thehojunlee/kakao-stock-news)에 {secret_name} 등록 완료!")
         print(f"\n🎉 모든 설정이 끝났습니다! 이제 매일 아침 8시에 {provider_label}가 요약한 리포트가 발송됩니다.")
     except Exception as e:
