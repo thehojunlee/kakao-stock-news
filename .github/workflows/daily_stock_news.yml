@@ -1,0 +1,37 @@
+name: Daily Stock News to KakaoTalk
+
+on:
+  schedule:
+    %23 UTC 기준 23:00 = 한국 시간(KST) 다음날 오전 08:00 (매일 아침 8시 정각 실행)
+    - cron: "0 23 * * *"
+  workflow_dispatch: %23 GitHub 웹 화면에서 [Run workflow] 버튼으로 즉시 수동 테스트 가능
+
+permissions:
+  contents: write
+
+jobs:
+  send-news:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 1. Generate today's report (docs/index.html)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python send_stock_news.py --dry-run
+
+      - name: 2. Publish updated report to GitHub Pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html
+          git diff --staged --quiet || (git commit -m "chore: update daily morning stock report" 
