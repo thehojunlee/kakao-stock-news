@@ -40,12 +40,9 @@ def detect_key_type(api_key: str) -> tuple[str, str]:
     """입력된 키의 시작 문자열을 보고 Claude / Gemini / OpenAI를 자동 판별합니다."""
     if api_key.startswith("sk-ant-"):
         return "ANTHROPIC_API_KEY", "Claude (Anthropic)"
-    if api_key.startswith("AIza"):
-        return "GEMINI_API_KEY", "Gemini (Google AI)"
     if api_key.startswith("sk-"):
         return "OPENAI_API_KEY", "ChatGPT (OpenAI)"
-    # 기본값은 Claude 또는 Gemini
-    return "ANTHROPIC_API_KEY", "Claude (Anthropic)"
+    return "GEMINI_API_KEY", "Gemini (Google AI)"
 
 
 def main() -> None:

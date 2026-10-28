@@ -438,10 +438,6 @@ def summarize_with_ai(
         if content_blocks and isinstance(content_blocks, list):
             raw_reply = content_blocks[0].get("text", "")
     elif gemini_key:
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.5-flash:generateContent?key={gemini_key}"
-        )
         payload = {
             "contents": [
                 {
@@ -454,7 +450,29 @@ def summarize_with_ai(
                 "responseMimeType": "application/json",
             },
         }
-        res = http_post_json(url, payload)
+        gemini_models = [
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.1-flash-lite",
+        ]
+        last_err = None
+        res = {}
+        for model_name in gemini_models:
+            url = (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model_name}:generateContent?key={gemini_key}"
+            )
+            try:
+                res = http_post_json(url, payload)
+                print(f"[AI 요약 성공] Google {model_name} 모델을 사용했습니다.")
+                break
+            except Exception as e:
+                last_err = e
+                continue
+        if not res and last_err:
+            raise last_err
         raw_reply = (
             res.get("candidates", [{}])[0]
             .get("content", {})
