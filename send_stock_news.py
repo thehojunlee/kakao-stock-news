@@ -1005,12 +1005,11 @@ def prepare_report_and_message() -> Tuple[str, str, pathlib.Path]:
     kst = datetime.timezone(datetime.timedelta(hours=9))
     today_str = datetime.datetime.now(kst).strftime("%m/%d")
     preview = report_data.get("kakao_preview", "").strip()
-    footer = f"\n\n👉 전체 읽기:\n{REPORT_WEB_URL}"
     header = f"🌅 모닝 증시·코인·금 ({today_str})\n\n"
-    max_preview_len = 198 - len(header) - len(footer)
+    max_preview_len = 198 - len(header)
     if len(preview) > max_preview_len:
         preview = preview[: max_preview_len - 1] + "…"
-    kakao_msg = f"{header}{preview}{footer}"
+    kakao_msg = f"{header}{preview}"
 
     return kakao_msg, REPORT_WEB_URL, html_path
 
