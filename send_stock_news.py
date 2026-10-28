@@ -384,11 +384,12 @@ def summarize_with_ai(
     kr_items: List[Dict[str, str]],
     crypto_gold_items: List[Dict[str, str]],
 ) -> Dict[str, Any]:
-    """Gemini API 또는 OpenAI API를 사용해 심층 웹 리포트용 JSON을 생성합니다."""
+    """Claude(Anthropic), Gemini, 또는 OpenAI API를 사용해 심층 웹 리포트용 JSON을 생성합니다."""
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
-    if not gemini_key and not openai_key:
+    if not anthropic_key and not gemini_key and not openai_key:
         kst = datetime.timezone(datetime.timedelta(hours=9))
         today_mmdd = datetime.datetime.now(kst).strftime("%m/%d")
         override_file = BASE_DIR / "ai_summary_override.json"
@@ -409,7 +410,29 @@ def summarize_with_ai(
     )
 
     raw_reply = ""
-    if gemini_key:
+    if anthropic_key:
+        url = "https://api.anthropic.com/v1/messages"
+        payload = {
+            "model": "claude-sonnet-4-20250514",
+            "max_tokens": 4096,
+            "temperature": 0.25,
+            "system": system_prompt,
+            "messages": [
+                {"role": "user", "content": user_content},
+            ],
+        }
+        res = http_post_json(
+            url,
+            payload,
+            headers={
+                "x-api-key": anthropic_key,
+                "anthropic-version": "2023-06-01",
+            },
+        )
+        content_blocks = res.get("content", [])
+        if content_blocks and isinstance(content_blocks, list):
+            raw_reply = content_blocks[0].get("text", "")
+    elif gemini_key:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
             f"gemini-2.5-flash:generateContent?key={gemini_key}"
