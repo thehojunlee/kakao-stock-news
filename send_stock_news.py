@@ -415,92 +415,96 @@ def summarize_with_ai(
     )
 
     raw_reply = ""
-    if anthropic_key:
-        url = "https://api.anthropic.com/v1/messages"
-        payload = {
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": 4096,
-            "temperature": 0.25,
-            "system": system_prompt,
-            "messages": [
-                {"role": "user", "content": user_content},
-            ],
-        }
-        res = http_post_json(
-            url,
-            payload,
-            headers={
-                "x-api-key": anthropic_key,
-                "anthropic-version": "2023-06-01",
-            },
-        )
-        content_blocks = res.get("content", [])
-        if content_blocks and isinstance(content_blocks, list):
-            raw_reply = content_blocks[0].get("text", "")
-    elif gemini_key:
-        payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": system_prompt + "\n\n" + user_content}],
-                }
-            ],
-            "generationConfig": {
+    try:
+        if anthropic_key:
+            url = "https://api.anthropic.com/v1/messages"
+            payload = {
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 4096,
                 "temperature": 0.25,
-                "responseMimeType": "application/json",
-            },
-        }
-        gemini_models = [
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            "gemini-3.1-flash-lite",
-        ]
-        last_err = None
-        res = {}
-        for model_name in gemini_models:
-            url = (
-                "https://generativelanguage.googleapis.com/v1beta/models/"
-                f"{model_name}:generateContent?key={gemini_key}"
+                "system": system_prompt,
+                "messages": [
+                    {"role": "user", "content": user_content},
+                ],
+            }
+            res = http_post_json(
+                url,
+                payload,
+                headers={
+                    "x-api-key": anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                },
             )
-            try:
-                res = http_post_json(url, payload)
-                print(f"[AI 요약 성공] Google {model_name} 모델을 사용했습니다.")
-                break
-            except Exception as e:
-                last_err = e
-                continue
-        if not res and last_err:
-            raise last_err
-        raw_reply = (
-            res.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-        )
-    elif openai_key:
-        url = "https://api.openai.com/v1/chat/completions"
-        payload = {
-            "model": "gpt-4o-mini",
-            "response_format": {"type": "json_object"},
-            "temperature": 0.25,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-        }
-        res = http_post_json(
-            url, payload, headers={"Authorization": f"Bearer {openai_key}"}
-        )
-        raw_reply = (
-            res.get("choices", [{}])[0].get("message", {}).get("content", "")
-        )
+            content_blocks = res.get("content", [])
+            if content_blocks and isinstance(content_blocks, list):
+                raw_reply = content_blocks[0].get("text", "")
+        elif gemini_key:
+            payload = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": system_prompt + "\n\n" + user_content}],
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.25,
+                    "responseMimeType": "application/json",
+                },
+            }
+            gemini_models = [
+                "gemini-3.6-flash",
+                "gemini-3.5-flash",
+                "gemini-3-flash-preview",
+                "gemini-flash-lite-latest",
+                "gemini-3.8-flash",
+            ]
+            last_err = None
+            res = {}
+            for model_name in gemini_models:
+                url = (
+                    "https://generativelanguage.googleapis.com/v1beta/models/"
+                    f"{model_name}:generateContent?key={gemini_key}"
+                )
+                try:
+                    res = http_post_json(url, payload)
+                    print(f"[AI 요약 성공] Google {model_name} 모델을 사용했습니다.")
+                    break
+                except Exception as e:
+                    last_err = e
+                    continue
+            if not res and last_err:
+                raise last_err
+            raw_reply = (
+                res.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+            )
+        elif openai_key:
+            url = "https://api.openai.com/v1/chat/completions"
+            payload = {
+                "model": "gpt-4o-mini",
+                "response_format": {"type": "json_object"},
+                "temperature": 0.25,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+            }
+            res = http_post_json(
+                url, payload, headers={"Authorization": f"Bearer {openai_key}"}
+            )
+            raw_reply = (
+                res.get("choices", [{}])[0].get("message", {}).get("content", "")
+            )
 
-    cleaned_json = re.sub(
-        r"^```(?:json)?|```$", "", raw_reply.strip(), flags=re.MULTILINE
-    ).strip()
-    return json.loads(cleaned_json)
+        cleaned_json = re.sub(
+            r"^```(?:json)?|```$", "", raw_reply.strip(), flags=re.MULTILINE
+        ).strip()
+        return json.loads(cleaned_json)
+    except Exception as e:
+        print(f"[경고] AI 서버 응답 지연으로 동적 헤드라인 리포트로 대체합니다: {e}", file=sys.stderr)
+        return build_dynamic_fallback_report(us_items, kr_items, crypto_gold_items)
 
 
 def render_story_blocks(blocks: List[Dict[str, str]]) -> str:
