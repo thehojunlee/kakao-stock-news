@@ -21,6 +21,8 @@ REPORT_WEB_URL = "https://thehojunlee.github.io/kakao-stock-news/"
 
 KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token"
 KAKAO_MEMO_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
+KAKAO_FRIENDS_LIST_URL = "https://kapi.kakao.com/v1/api/talk/friends"
+KAKAO_FRIENDS_SEND_URL = "https://kapi.kakao.com/v1/api/talk/friends/message/default/send"
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -986,6 +988,45 @@ def send_kakao_memo(access_token: str, text: str, web_url: str) -> None:
         raise RuntimeError(f"카카오톡 메시지 전송 실패: {res}")
 
 
+def send_kakao_to_friends(access_token: str, text: str, web_url: str) -> int:
+    """동의한 카카오 친구 목록을 조회하여 1:1 카톡방으로 동일한 브리핑을 발송합니다."""
+    req = urllib.request.Request(
+        KAKAO_FRIENDS_LIST_URL,
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        # 아직 friends 동의항목을 켜지 않았거나 친구가 없는 경우 조용히 넘어감
+        return 0
+
+    elements = data.get("elements", [])
+    uuids = [f["uuid"] for f in elements if "uuid" in f][:5]
+    if not uuids:
+        return 0
+
+    template_object = {
+        "object_type": "text",
+        "text": text,
+        "link": {
+            "web_url": web_url,
+            "mobile_web_url": web_url,
+        },
+        "button_title": "상세 브리핑 & 경제공부 읽기",
+    }
+    res = http_post_form(
+        KAKAO_FRIENDS_SEND_URL,
+        form_data={
+            "receiver_uuids": json.dumps(uuids),
+            "template_object": json.dumps(template_object, ensure_ascii=False),
+        },
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    succeeded = res.get("successful_receiver_uuids", [])
+    return len(succeeded)
+
+
 def prepare_report_and_message() -> Tuple[str, str, pathlib.Path]:
     """4개 뉴스 소스(미·한 증시 + 비트코인·금) 수집 -> AI 리포트 생성 -> HTML 저장 및 카톡 알림 구성을 수행합니다."""
     load_local_env()
@@ -1055,7 +1096,11 @@ def main() -> None:
     )
 
     send_kakao_memo(access_token, kakao_msg, report_url)
-    print("🎉 카카오톡 '나에게 보내기' 전송이 완료되었습니다!")
+    friend_cnt = send_kakao_to_friends(access_token, kakao_msg, report_url)
+    if friend_cnt > 0:
+        print(f"🎉 나에게 보내기 + 친구 {friend_cnt}명에게 1:1 카톡 전송이 완료되었습니다!")
+    else:
+        print("🎉 카카오톡 '나에게 보내기' 전송이 완료되었습니다!")
 
 
 if __name__ == "__main__":
