@@ -6,16 +6,18 @@ import os
 import pathlib
 import re
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 PROMPT_FILE = BASE_DIR / "ai_prompt.txt"
+DOCS_DIR = BASE_DIR / "docs"
 EXTERNAL_ENV_FILE = pathlib.Path(r"D:\FinanceData\kakao_stock_news.env")
+
+REPORT_WEB_URL = "https://thehojunlee.github.io/kakao-stock-news/"
 
 KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token"
 KAKAO_MEMO_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
@@ -75,7 +77,7 @@ def http_post_json(
 
     req = urllib.request.Request(url, data=encoded_data, headers=req_headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=35) as resp:
+        with urllib.request.urlopen(req, timeout=45) as resp:
             body = resp.read().decode("utf-8")
             return json.loads(body)
     except urllib.error.HTTPError as e:
@@ -83,7 +85,7 @@ def http_post_json(
         raise RuntimeError(f"HTTP {e.code} 오류 ({url}): {err_body}") from e
 
 
-def clean_headline(raw_title: str, max_len: int = 85) -> str:
+def clean_headline(raw_title: str, max_len: int = 90) -> str:
     """언론사 접미사 제거 및 깔끔한 한 줄 제목으로 정리합니다."""
     title = html.unescape(raw_title).strip()
     if " - " in title:
@@ -202,18 +204,16 @@ def collect_all_sources() -> Tuple[List[str], List[str]]:
 
 def summarize_with_ai(
     us_headlines: List[str], kr_headlines: List[str]
-) -> List[Dict[str, str]] | None:
-    """Gemini API 또는 OpenAI API를 사용해 수집된 멀티소스 뉴스를 초보자 맞춤형으로 상세 요약합니다."""
+) -> Dict[str, Any]:
+    """Gemini API 또는 OpenAI API를 사용해 심층 웹 리포트용 JSON을 생성합니다."""
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
     if not gemini_key and not openai_key:
         override_file = BASE_DIR / "ai_summary_override.json"
         if override_file.exists():
-            data = json.loads(override_file.read_text(encoding="utf-8-sig"))
-            if "sections" in data:
-                return data["sections"]
-        return None
+            return json.loads(override_file.read_text(encoding="utf-8-sig"))
+        raise RuntimeError("AI API 키 및 기본 요약 데이터가 없습니다.")
 
     system_prompt = PROMPT_FILE.read_text(encoding="utf-8-sig")
 
@@ -270,59 +270,258 @@ def summarize_with_ai(
     cleaned_json = re.sub(
         r"^```(?:json)?|```$", "", raw_reply.strip(), flags=re.MULTILINE
     ).strip()
-    parsed = json.loads(cleaned_json)
-    return parsed.get("sections", [])
+    return json.loads(cleaned_json)
 
 
-def split_section_into_bubbles(
-    title: str, body: str, max_chars: int = 198
-) -> List[str]:
-    """
-    카카오톡 텍스트 말풍선 1개당 200자 제한 때문에 글자가 절대 잘리지 않도록,
-    198자를 넘는 긴 설명은 문장/줄바꿈 단위로 자연스럽게 여러 말풍선으로 나눕니다.
-    """
+def render_lesson_cards(lessons: List[Dict[str, str]]) -> str:
+    """초보자용 경제 공부 카드 HTML을 렌더링합니다."""
+    cards = []
+    for item in lessons:
+        term = html.escape(item.get("term", ""))
+        why = html.escape(item.get("why_in_news", ""))
+        easy = html.escape(item.get("easy_explanation", "")).replace("\n", "<br>")
+        impact = html.escape(item.get("up_down_impact", "")).replace("\n", "<br>")
+        cards.append(
+            f"""
+            <div class="lesson-card">
+              <div class="lesson-badge">📚 오늘의 경제 공부</div>
+              <h4 class="lesson-title">Q. {term}이(가) 뭔가요?</h4>
+              <p class="lesson-why">💬 <strong>뉴스 맥락:</strong> {why}</p>
+              <div class="lesson-box">
+                <p><strong>💡 쉬운 개념 설명</strong><br>{easy}</p>
+                <div class="impact-box">
+                  <strong>📈 주가에는 어떤 영향을 주나요?</strong><br>{impact}
+                </div>
+              </div>
+            </div>
+            """
+        )
+    return "\n".join(cards)
+
+
+def generate_html_report(
+    report_data: Dict[str, Any], us_headlines: List[str], kr_headlines: List[str]
+) -> pathlib.Path:
+    """모바일 카카오톡 인앱 브라우저에 최적화된 상세 뉴스레터 웹페이지(docs/index.html)를 생성합니다."""
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
     kst = datetime.timezone(datetime.timedelta(hours=9))
-    today_str = datetime.datetime.now(kst).strftime("%m/%d")
-    header = f"{title} ({today_str})"
+    now_kst = datetime.datetime.now(kst)
+    weekdays_kr = ["월", "화", "수", "목", "금", "토", "일"]
+    date_label = f"{now_kst.year}년 {now_kst.month:02d}월 {now_kst.day:02d}일 ({weekdays_kr[now_kst.weekday()]})"
 
-    single = f"{header}\n\n{body.strip()}"
-    if len(single) <= max_chars:
-        return [single]
+    headline_title = html.escape(
+        report_data.get("headline_title", "오늘의 미·한 증시 & 경제공부 브리핑")
+    )
+    three_lines = "\n".join(
+        f"<li>{html.escape(line)}</li>"
+        for line in report_data.get("three_line_summary", [])
+    )
+    us_paragraphs = "\n".join(
+        f"<p>{html.escape(p)}</p>" for p in report_data.get("us_market_story", [])
+    )
+    kr_paragraphs = "\n".join(
+        f"<p>{html.escape(p)}</p>" for p in report_data.get("kr_market_story", [])
+    )
+    us_lessons_html = render_lesson_cards(report_data.get("us_econ_lessons", []))
+    kr_lessons_html = render_lesson_cards(report_data.get("kr_econ_lessons", []))
 
-    # 문장 또는 줄바꿈 단위로 분리하여 말풍선 여러 개로 나눔 (내용 생략 없음)
-    raw_chunks = re.split(r"(?<=[.!?])\s+|\n+", body.strip())
-    bubbles: List[str] = []
-    current_lines: List[str] = []
-    part_num = 1
+    checkpoints_html = "\n".join(
+        f"<li>{html.escape(cp)}</li>"
+        for cp in report_data.get("today_checkpoints", [])
+    )
+    raw_us_html = "\n".join(f"<li>{html.escape(h)}</li>" for h in us_headlines[:10])
+    raw_kr_html = "\n".join(f"<li>{html.escape(h)}</li>" for h in kr_headlines[:10])
 
-    for sentence in raw_chunks:
-        sentence = sentence.strip()
-        if not sentence:
-            continue
-        part_header = f"{title} ({today_str})" if part_num == 1 else f"{title} (계속)"
-        candidate_body = "\n".join(current_lines + [sentence])
-        candidate_full = f"{part_header}\n\n{candidate_body}"
+    html_doc = f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>🌅 아침 주식 & 경제공부 브리핑 ({now_kst.strftime('%m/%d')})</title>
+  <style>
+    :root {{
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --text: #191f28;
+      --sub: #4e5968;
+      --blue: #3182f6;
+      --blue-bg: #e8f3ff;
+      --amber-bg: #fff8eb;
+      --amber-border: #ffd180;
+      --border: #e5e8eb;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      padding: 16px 12px 48px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
+      line-height: 1.68;
+      font-size: 16px;
+    }}
+    .container {{
+      max-width: 640px;
+      margin: 0 auto;
+    }}
+    .hero {{
+      background: linear-gradient(135deg, #1b3a6b 0%, #2563eb 100%);
+      color: #fff;
+      padding: 24px 20px;
+      border-radius: 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.18);
+    }}
+    .hero-date {{
+      font-size: 13px;
+      opacity: 0.85;
+      margin-bottom: 6px;
+    }}
+    .hero-title {{
+      margin: 0;
+      font-size: 21px;
+      font-weight: 800;
+      line-height: 1.4;
+    }}
+    .card {{
+      background: var(--card);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+      border: 1px solid var(--border);
+    }}
+    .section-title {{
+      margin: 0 0 14px;
+      font-size: 18px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-bottom: 2px solid #f2f4f6;
+      padding-bottom: 10px;
+    }}
+    .summary-list {{
+      margin: 0;
+      padding-left: 20px;
+    }}
+    .summary-list li {{
+      margin-bottom: 10px;
+      font-weight: 500;
+    }}
+    .story p {{
+      margin: 0 0 14px;
+      color: #2b333e;
+      word-break: keep-all;
+    }}
+    .lesson-card {{
+      background: var(--amber-bg);
+      border: 1px solid var(--amber-border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-top: 16px;
+    }}
+    .lesson-badge {{
+      display: inline-block;
+      background: #ff9800;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 99px;
+      margin-bottom: 8px;
+    }}
+    .lesson-title {{
+      margin: 0 0 8px;
+      font-size: 16.5px;
+      color: #191f28;
+    }}
+    .lesson-why {{
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: var(--sub);
+    }}
+    .lesson-box p {{
+      margin: 0 0 12px;
+      font-size: 15px;
+    }}
+    .impact-box {{
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14.5px;
+      border-left: 4px solid var(--blue);
+    }}
+    .raw-list {{
+      font-size: 13.5px;
+      color: var(--sub);
+      padding-left: 18px;
+      margin: 8px 0 0;
+    }}
+    .raw-list li {{
+      margin-bottom: 5px;
+    }}
+    details summary {{
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--blue);
+      font-size: 15px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="hero">
+      <div class="hero-date">🌅 모닝 주식 & 경제공부 리포트 · {date_label}</div>
+      <h1 class="hero-title">{headline_title}</h1>
+    </div>
 
-        if len(candidate_full) <= max_chars:
-            current_lines.append(sentence)
-        else:
-            if current_lines:
-                bubbles.append(f"{part_header}\n\n" + "\n".join(current_lines))
-                part_num += 1
-                current_lines = [sentence]
-            else:
-                # 한 문장 자체가 너무 긴 경우 어절 단위로 분할
-                bubbles.append(candidate_full[:max_chars])
-                rest = candidate_full[max_chars:].strip()
-                if rest:
-                    current_lines = [rest]
-                part_num += 1
+    <div class="card">
+      <h2 class="section-title">⚡ 바쁜 아침을 위한 3줄 핵심 요약</h2>
+      <ul class="summary-list">
+        {three_lines}
+      </ul>
+    </div>
 
-    if current_lines:
-        part_header = f"{title} ({today_str})" if part_num == 1 else f"{title} (계속)"
-        bubbles.append(f"{part_header}\n\n" + "\n".join(current_lines))
+    <div class="card">
+      <h2 class="section-title">🇺🇸 1. 간밤 미국 증시 심층 해설</h2>
+      <div class="story">
+        {us_paragraphs}
+      </div>
+      {us_lessons_html}
+    </div>
 
-    return bubbles
+    <div class="card">
+      <h2 class="section-title">🇰🇷 2. 국내 증시 시황 & 주도주 해설</h2>
+      <div class="story">
+        {kr_paragraphs}
+      </div>
+      {kr_lessons_html}
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">🎯 3. 오늘 장 투자자 체크포인트</h2>
+      <ul class="summary-list">
+        {checkpoints_html}
+      </ul>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>📰 4대 매체(네이버·구글·인베스팅·야후) 수집 원문 헤드라인 보기</summary>
+        <h4 style="margin:14px 0 4px;">🇺🇸 미국/글로벌 증시</h4>
+        <ul class="raw-list">{raw_us_html}</ul>
+        <h4 style="margin:14px 0 4px;">🇰🇷 국내 증시</h4>
+        <ul class="raw-list">{raw_kr_html}</ul>
+      </details>
+    </div>
+  </div>
+</body>
+</html>
+"""
+    out_path = DOCS_DIR / "index.html"
+    out_path.write_text(html_doc, encoding="utf-8")
+    return out_path
 
 
 def refresh_kakao_access_token(
@@ -353,7 +552,7 @@ def send_kakao_memo(access_token: str, text: str, web_url: str) -> None:
             "web_url": web_url,
             "mobile_web_url": web_url,
         },
-        "button_title": "뉴스 더보기",
+        "button_title": "상세 브리핑 & 경제공부 읽기",
     }
     res = http_post_form(
         KAKAO_MEMO_URL,
@@ -364,8 +563,8 @@ def send_kakao_memo(access_token: str, text: str, web_url: str) -> None:
         raise RuntimeError(f"카카오톡 메시지 전송 실패: {res}")
 
 
-def prepare_messages() -> List[Tuple[str, str]]:
-    """4개 뉴스 소스에서 기사를 수집하고 AI 상세 해설 브리핑 말풍선 리스트를 반환합니다."""
+def prepare_report_and_message() -> Tuple[str, str, pathlib.Path]:
+    """4개 뉴스 소스 수집 -> AI 리포트 생성 -> HTML 저장 및 카톡 알림 1통 구성을 수행합니다."""
     load_local_env()
     us_headlines, kr_headlines = collect_all_sources()
 
@@ -374,21 +573,18 @@ def prepare_messages() -> List[Tuple[str, str]]:
         f"국내 증시 뉴스 {len(kr_headlines)}건 (네이버·구글·인베스팅·야후)"
     )
 
-    sections = summarize_with_ai(us_headlines, kr_headlines)
-    messages: List[Tuple[str, str]] = []
+    report_data = summarize_with_ai(us_headlines, kr_headlines)
+    html_path = generate_html_report(report_data, us_headlines, kr_headlines)
+    print(f"[웹 리포트 생성 완료] {html_path}")
 
-    if sections:
-        print(f"[AI 상세 해설 생성 완료] 총 {len(sections)}개 섹션 브리핑을 구성했습니다.")
-        for sec in sections:
-            title = sec.get("title", "📈 증시 브리핑")
-            body = sec.get("body", "")
-            url = sec.get("url", "https://finance.naver.com/")
-            for bubble_text in split_section_into_bubbles(title, body):
-                messages.append((bubble_text, url))
-    else:
-        raise RuntimeError("AI 요약을 생성할 수 없습니다.")
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+    today_str = datetime.datetime.now(kst).strftime("%m/%d")
+    preview = report_data.get("kakao_preview", "").strip()
+    kakao_msg = f"🌅 모닝 증시 & 경제공부 ({today_str})\n\n{preview}"
+    if len(kakao_msg) > 198:
+        kakao_msg = kakao_msg[:197] + "…"
 
-    return messages
+    return kakao_msg, REPORT_WEB_URL, html_path
 
 
 def main() -> None:
@@ -398,24 +594,24 @@ def main() -> None:
     load_local_env()
 
     parser = argparse.ArgumentParser(
-        description="4대 증시 뉴스 소스를 수집 및 초보자 맞춤형 AI 해설로 요약하여 카카오톡으로 발송합니다."
+        description="4대 증시 뉴스를 수집하여 모바일 웹 리포트를 생성하고 카카오톡 알림을 발송합니다."
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="카카오톡을 실제로 발송하지 않고 생성된 메시지 포맷만 콘솔에 출력합니다.",
+        help="카카오톡을 발송하지 않고 웹 리포트(docs/index.html) 생성 및 미리보기만 출력합니다.",
     )
     args = parser.parse_args()
 
-    messages_to_send = prepare_messages()
+    kakao_msg, report_url, html_path = prepare_report_and_message()
 
     print("=" * 60)
-    print(f"카카오톡 발송 예정 메시지 (총 {len(messages_to_send)}개 말풍선)")
+    print(f"카카오톡 발송 메시지 (1통, {len(kakao_msg)}자)")
     print("=" * 60)
-    for idx, (msg_text, more_url) in enumerate(messages_to_send, start=1):
-        print(f"[말풍선 {idx}] ({len(msg_text)}자)")
-        print(msg_text)
-        print("-" * 60)
+    print(kakao_msg)
+    print(f"🔗 연결 리포트 주소: {report_url}")
+    print(f"📄 로컬 리포트 파일: {html_path}")
+    print("=" * 60)
 
     if args.dry_run:
         print("[Dry-Run 완료] --dry-run 옵션이 켜져 있어 카카오톡 전송은 생략했습니다.")
@@ -431,11 +627,8 @@ def main() -> None:
         client_secret=client_secret,
     )
 
-    for msg_text, more_url in messages_to_send:
-        send_kakao_memo(access_token, msg_text, more_url)
-        time.sleep(0.3)
-
-    print("🎉 카카오톡 '나에게 보내기' 상세 해설 브리핑 전송이 완료되었습니다!")
+    send_kakao_memo(access_token, kakao_msg, report_url)
+    print("🎉 카카오톡 '나에게 보내기' 전송이 완료되었습니다!")
 
 
 if __name__ == "__main__":
