@@ -92,7 +92,7 @@ def format_rich_text(text: str) -> str:
     return bolded.replace("\n", "<br>")
 
 
-def clean_headline(raw_title: str, max_len: int = 90) -> str:
+def clean_headline(raw_title: str, max_len: int = 92) -> str:
     """언론사 접미사 제거 및 깔끔한 한 줄 제목으로 정리합니다."""
     title = html.unescape(raw_title).strip()
     if " - " in title:
@@ -105,8 +105,8 @@ def clean_headline(raw_title: str, max_len: int = 90) -> str:
 
 def fetch_rss_items(
     rss_url: str, source_label: str, limit: int = 5
-) -> Tuple[List[str], List[str]]:
-    """지정된 RSS URL에서 최신 뉴스 제목 목록과 썸네일 이미지 URL을 가져옵니다."""
+) -> Tuple[List[Dict[str, str]], List[str]]:
+    """지정된 RSS URL에서 최신 뉴스 아이템({source, title, url}) 목록과 썸네일 이미지 URL을 가져옵니다."""
     try:
         req = urllib.request.Request(rss_url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -115,10 +115,11 @@ def fetch_rss_items(
         images = re.findall(r'url="(https://content-media\.investing\.com/[^"]+)"', raw_text)
 
         root = ET.fromstring(xml_bytes)
-        results = []
+        results: List[Dict[str, str]] = []
         seen = set()
         for item in root.findall("./channel/item"):
             raw_title = item.findtext("title") or ""
+            link = (item.findtext("link") or "").strip()
             cleaned = clean_headline(raw_title)
             if not cleaned:
                 continue
@@ -126,7 +127,13 @@ def fetch_rss_items(
             if prefix in seen:
                 continue
             seen.add(prefix)
-            results.append(f"[{source_label}] {cleaned}")
+            results.append(
+                {
+                    "source": source_label,
+                    "title": cleaned,
+                    "url": link or "https://finance.naver.com/",
+                }
+            )
             if len(results) >= limit:
                 break
         return results, images
@@ -135,8 +142,10 @@ def fetch_rss_items(
         return [], []
 
 
-def fetch_google_news_rss(query: str, source_label: str, limit: int = 5) -> List[str]:
-    """구글 뉴스 한국어 RSS에서 검색어 기준 최신 뉴스를 가져옵니다."""
+def fetch_google_news_rss(
+    query: str, source_label: str, limit: int = 5
+) -> List[Dict[str, str]]:
+    """구글 뉴스 한국어 RSS에서 검색어 기준 최신 뉴스와 링크를 가져옵니다."""
     encoded_query = urllib.parse.quote(query)
     rss_url = (
         f"https://news.google.com/rss/search?q={encoded_query}"
@@ -146,17 +155,22 @@ def fetch_google_news_rss(query: str, source_label: str, limit: int = 5) -> List
     return items
 
 
-def fetch_naver_securities_news(limit: int = 8) -> Tuple[List[str], List[str]]:
-    """네이버 증권 속보/주요뉴스 섹션에서 미국 증시 및 국내 증시 기사를 분류해 가져옵니다."""
+def fetch_naver_securities_news(
+    limit: int = 6,
+) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
+    """네이버 증권 속보/주요뉴스 섹션에서 기사와 원문 링크를 함께 추출합니다."""
     url = "https://news.naver.com/breakingnews/section/101/258"
-    us_list: List[str] = []
-    kr_list: List[str] = []
+    us_list: List[Dict[str, str]] = []
+    kr_list: List[Dict[str, str]] = []
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw_html = resp.read().decode("utf-8", errors="replace")
 
-        titles = re.findall(r'class="sa_text_strong">([^<]+)</strong>', raw_html)
+        pairs = re.findall(
+            r'<a href="(https://n\.news\.naver\.com/[^"]+)" class="sa_text_title[^"]*"[^>]*>\s*<strong class="sa_text_strong">([^<]+)</strong>',
+            raw_html,
+        )
         us_keywords = (
             "뉴욕",
             "나스닥",
@@ -171,25 +185,79 @@ def fetch_naver_securities_news(limit: int = 8) -> Tuple[List[str], List[str]]:
             "테슬라",
         )
         seen = set()
-        for t in titles:
-            cleaned = clean_headline(t)
+        for link, raw_title in pairs:
+            cleaned = clean_headline(raw_title)
             if not cleaned or cleaned in seen:
                 continue
             seen.add(cleaned)
+            entry = {"source": "네이버증권", "title": cleaned, "url": html.unescape(link)}
             if any(k in cleaned for k in us_keywords):
                 if len(us_list) < limit:
-                    us_list.append(f"[네이버증권] {cleaned}")
+                    us_list.append(entry)
             else:
                 if len(kr_list) < limit:
-                    kr_list.append(f"[네이버증권] {cleaned}")
+                    kr_list.append(entry)
     except Exception as e:
         print(f"[경고] 네이버 증권 뉴스 수집 중 오류 발생 (건너뜀): {e}", file=sys.stderr)
 
     return us_list, kr_list
 
 
-def collect_all_sources() -> Tuple[List[str], List[str], List[str]]:
-    """4대 뉴스 소스(네이버 증권, 구글 뉴스, 인베스팅닷컴, 야후 파이낸스)와 뉴스 이미지를 수집합니다."""
+def fetch_upbit_btc_svg_chart() -> str:
+    """업비트 공개 API에서 최근 30일 비트코인(KRW-BTC) 일봉을 가져와 깔끔한 SVG 차트로 렌더링합니다."""
+    try:
+        url = "https://api.upbit.com/v1/candles/days?market=KRW-BTC&count=30"
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            candles = json.loads(resp.read().decode("utf-8"))
+        if not candles:
+            return ""
+        candles = list(reversed(candles))
+        prices = [float(c["trade_price"]) for c in candles]
+        latest_krw = int(prices[-1])
+        chg_pct = float(candles[-1].get("change_rate", 0.0)) * 100
+        sign = "+" if chg_pct >= 0 else ""
+
+        min_p, max_p = min(prices), max(prices)
+        span = max(max_p - min_p, 1.0)
+        w, h = 280, 125
+        pad_x, pad_y = 10, 16
+
+        pts = []
+        for idx, p in enumerate(prices):
+            x = pad_x + (idx / max(len(prices) - 1, 1)) * (w - 2 * pad_x)
+            y = pad_y + (1.0 - (p - min_p) / span) * (h - 2 * pad_y)
+            pts.append(f"{x:.1f},{y:.1f}")
+
+        polyline_pts = " ".join(pts)
+        area_pts = f"{pad_x},{h - pad_y} " + polyline_pts + f" {w - pad_x},{h - pad_y}"
+
+        return f"""
+        <svg viewBox="0 0 {w} {h + 24}" width="100%" height="auto" style="background:#fff;border-radius:8px;display:block;">
+          <defs>
+            <linearGradient id="btcGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.38"/>
+              <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.02"/>
+            </linearGradient>
+          </defs>
+          <polygon points="{area_pts}" fill="url(#btcGrad)" />
+          <polyline fill="none" stroke="#d97706" stroke-width="2.5" points="{polyline_pts}" />
+          <text x="10" y="15" font-size="11" fill="#64748b" font-family="sans-serif">최고 {int(max_p)//10000:,}만원</text>
+          <text x="10" y="{h + 15}" font-size="11" fill="#64748b" font-family="sans-serif">최저 {int(min_p)//10000:,}만원</text>
+          <text x="{w - 10}" y="{h + 15}" text-anchor="end" font-size="11.5" font-weight="bold" fill="#b45309" font-family="sans-serif">현재 {latest_krw//10000:,}만원 ({sign}{chg_pct:.2f}%)</text>
+        </svg>
+        """
+    except Exception:
+        return ""
+
+
+def collect_all_sources() -> Tuple[
+    List[Dict[str, str]],
+    List[Dict[str, str]],
+    List[Dict[str, str]],
+    List[str],
+]:
+    """미국 증시, 국내 증시, 비트코인·금 뉴스 및 이미지를 종합 수집합니다."""
     naver_us, naver_kr = fetch_naver_securities_news(limit=5)
 
     google_us = fetch_google_news_rss(
@@ -200,6 +268,16 @@ def collect_all_sources() -> Tuple[List[str], List[str], List[str]]:
         source_label="구글뉴스",
         limit=5,
     )
+    google_btc = fetch_google_news_rss(
+        "비트코인 시황 OR 비트코인 가격 OR 암호화폐 when:1d",
+        source_label="구글뉴스(코인)",
+        limit=4,
+    )
+    google_gold = fetch_google_news_rss(
+        "국제금시세 OR 금값 OR 금시세 안전자산 when:1d",
+        source_label="구글뉴스(금)",
+        limit=4,
+    )
 
     investing_all, investing_imgs = fetch_rss_items(
         "https://kr.investing.com/rss/news_25.rss", source_label="인베스팅닷컴", limit=6
@@ -207,16 +285,29 @@ def collect_all_sources() -> Tuple[List[str], List[str], List[str]]:
     yahoo_us, _ = fetch_rss_items(
         "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EIXIC,%5EDJI&region=US&lang=en-US",
         source_label="Yahoo파이낸스",
-        limit=5,
+        limit=4,
+    )
+    yahoo_btc_gold, _ = fetch_rss_items(
+        "https://feeds.finance.yahoo.com/rss/2.0/headline?s=BTC-USD,GC%3DF&region=US&lang=en-US",
+        source_label="Yahoo(BTC·Gold)",
+        limit=3,
     )
 
-    us_headlines = naver_us + google_us + investing_all[:3] + yahoo_us
-    kr_headlines = naver_kr + google_kr + investing_all[3:]
-    return us_headlines, kr_headlines, investing_imgs
+    us_items = naver_us + google_us + investing_all[:3] + yahoo_us
+    kr_items = naver_kr + google_kr + investing_all[3:]
+    crypto_gold_items = google_btc + google_gold + yahoo_btc_gold
+
+    return us_items, kr_items, crypto_gold_items, investing_imgs
+
+
+def format_items_for_prompt(items: List[Dict[str, str]]) -> str:
+    return "\n".join(f"[{it['source']}] {it['title']}" for it in items)
 
 
 def summarize_with_ai(
-    us_headlines: List[str], kr_headlines: List[str]
+    us_items: List[Dict[str, str]],
+    kr_items: List[Dict[str, str]],
+    crypto_gold_items: List[Dict[str, str]],
 ) -> Dict[str, Any]:
     """Gemini API 또는 OpenAI API를 사용해 심층 웹 리포트용 JSON을 생성합니다."""
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -232,9 +323,11 @@ def summarize_with_ai(
 
     user_content = (
         "=== [간밤 미국/글로벌 증시 수집 뉴스] ===\n"
-        + "\n".join(us_headlines)
+        + format_items_for_prompt(us_items)
         + "\n\n=== [국내 증시 시황 수집 뉴스] ===\n"
-        + "\n".join(kr_headlines)
+        + format_items_for_prompt(kr_items)
+        + "\n\n=== [비트코인(가상자산) 및 금(안전자산) 수집 뉴스] ===\n"
+        + format_items_for_prompt(crypto_gold_items)
     )
 
     raw_reply = ""
@@ -332,11 +425,11 @@ def render_lesson_cards(lessons: List[Dict[str, str]]) -> str:
               {flow_html}
               <div class="impact-grid">
                 <div class="impact-pos">
-                  <div class="impact-header">📈 주가에 긍정적일 때 (호재 원리)</div>
+                  <div class="impact-header">📈 가격에 긍정적일 때 (호재 원리)</div>
                   <div>{pos}</div>
                 </div>
                 <div class="impact-neg">
-                  <div class="impact-header">📉 주가에 부담될 때 (주의 원리)</div>
+                  <div class="impact-header">📉 가격에 부담될 때 (주의 원리)</div>
                   <div>{neg}</div>
                 </div>
               </div>
@@ -346,13 +439,34 @@ def render_lesson_cards(lessons: List[Dict[str, str]]) -> str:
     return "\n".join(cards)
 
 
+def render_headline_links(items: List[Dict[str, str]], limit: int = 12) -> str:
+    """수집된 각 기사별 클릭 가능한 원문 링크 목록을 렌더링합니다."""
+    rows = []
+    for it in items[:limit]:
+        src = html.escape(it.get("source", ""))
+        title = html.escape(it.get("title", ""))
+        url = html.escape(it.get("url", "https://finance.naver.com/"))
+        rows.append(
+            f"""
+            <li class="raw-item">
+              <a href="{url}" target="_blank" rel="noopener noreferrer" class="raw-link">
+                <span class="raw-source">[{src}]</span> {title}
+                <span class="raw-arrow">원문 보기 ↗</span>
+              </a>
+            </li>
+            """
+        )
+    return "\n".join(rows)
+
+
 def generate_html_report(
     report_data: Dict[str, Any],
-    us_headlines: List[str],
-    kr_headlines: List[str],
+    us_items: List[Dict[str, str]],
+    kr_items: List[Dict[str, str]],
+    crypto_gold_items: List[Dict[str, str]],
     news_images: List[str],
 ) -> pathlib.Path:
-    """시각적 차트 이미지와 가독성 높은 카드 레이아웃을 갖춘 모바일 리포트(docs/index.html)를 생성합니다."""
+    """시각적 차트 이미지, 비트코인/금 섹션, 기사별 원문 링크가 포함된 모바일 리포트(docs/index.html)를 생성합니다."""
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
     kst = datetime.timezone(datetime.timedelta(hours=9))
     now_kst = datetime.datetime.now(kst)
@@ -361,10 +475,10 @@ def generate_html_report(
     cache_bust = now_kst.strftime("%Y%m%d%H")
 
     headline_title = html.escape(
-        report_data.get("headline_title", "오늘의 미·한 증시 & 경제공부 브리핑")
+        report_data.get("headline_title", "오늘의 미·한 증시 & 비트코인·금 경제공부 브리핑")
     )
 
-    # 1. 상단 4대 시장 지표 전광판
+    # 1. 상단 6대 시장 지표 전광판
     metrics_html_list = []
     for m in report_data.get("market_metrics", []):
         trend = m.get("trend", "neutral")
@@ -386,18 +500,25 @@ def generate_html_report(
         for line in report_data.get("three_line_summary", [])
     )
 
-    # 3. 미국/국내 스토리 블록 & 경제 공부 카드
+    # 3. 미국 / 국내 / 비트코인·금 스토리 블록 & 경제 공부 카드
     us_blocks_html = render_story_blocks(report_data.get("us_market_blocks", []))
     kr_blocks_html = render_story_blocks(report_data.get("kr_market_blocks", []))
+    cg_blocks_html = render_story_blocks(report_data.get("crypto_gold_blocks", []))
+
     us_lessons_html = render_lesson_cards(report_data.get("us_econ_lessons", []))
     kr_lessons_html = render_lesson_cards(report_data.get("kr_econ_lessons", []))
+    cg_lessons_html = render_lesson_cards(report_data.get("crypto_gold_lessons", []))
+
+    btc_svg_html = fetch_upbit_btc_svg_chart()
 
     checkpoints_html = "\n".join(
         f"<li>{format_rich_text(cp)}</li>"
         for cp in report_data.get("today_checkpoints", [])
     )
-    raw_us_html = "\n".join(f"<li>{html.escape(h)}</li>" for h in us_headlines[:10])
-    raw_kr_html = "\n".join(f"<li>{html.escape(h)}</li>" for h in kr_headlines[:10])
+
+    raw_us_html = render_headline_links(us_items, limit=12)
+    raw_kr_html = render_headline_links(kr_items, limit=12)
+    raw_cg_html = render_headline_links(crypto_gold_items, limit=12)
 
     featured_photo = (
         news_images[0]
@@ -410,7 +531,7 @@ def generate_html_report(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>🌅 모닝 주식 & 경제공부 리포트 ({now_kst.month:02d}/{now_kst.day:02d})</title>
+  <title>🌅 모닝 주식·코인·금 & 경제공부 리포트 ({now_kst.month:02d}/{now_kst.day:02d})</title>
   <style>
     :root {{
       --bg: #f2f4f8;
@@ -420,8 +541,6 @@ def generate_html_report(
       --blue: #2563eb;
       --red: #e11d48;
       --red-bg: #fff1f2;
-      --green: #059669;
-      --green-bg: #ecfdf5;
       --amber-bg: #fffbeb;
       --amber-border: #fde68a;
       --border: #e5e8eb;
@@ -441,7 +560,6 @@ def generate_html_report(
       max-width: 640px;
       margin: 0 auto;
     }}
-    /* 상단 히어로 배너 (배경 이미지 + 그라데이션 오버레이) */
     .hero {{
       position: relative;
       background: linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 58, 138, 0.84) 100%),
@@ -464,12 +582,11 @@ def generate_html_report(
     }}
     .hero-title {{
       margin: 0;
-      font-size: 22px;
+      font-size: 21.5px;
       font-weight: 800;
       line-height: 1.42;
       word-break: keep-all;
     }}
-    /* 4대 핵심 지표 전광판 그리드 */
     .metrics-grid {{
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -479,7 +596,7 @@ def generate_html_report(
     .metric-card {{
       background: var(--card);
       border-radius: 15px;
-      padding: 14px 15px;
+      padding: 13px 14px;
       border: 1px solid var(--border);
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
     }}
@@ -487,10 +604,10 @@ def generate_html_report(
       font-size: 13px;
       color: var(--sub);
       font-weight: 600;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }}
     .metric-value {{
-      font-size: 19px;
+      font-size: 18px;
       font-weight: 800;
       letter-spacing: -0.3px;
     }}
@@ -502,7 +619,6 @@ def generate_html_report(
       color: var(--sub);
       margin-top: 2px;
     }}
-    /* 공통 카드 */
     .card {{
       background: var(--card);
       border-radius: 18px;
@@ -522,7 +638,6 @@ def generate_html_report(
       padding-bottom: 12px;
       color: #0f172a;
     }}
-    /* 차트 이미지 그리드 */
     .chart-grid {{
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -554,7 +669,6 @@ def generate_html_report(
       background: #fff;
       display: block;
     }}
-    /* 3줄 핵심 요약 */
     .summary-list {{
       margin: 0;
       padding-left: 20px;
@@ -565,7 +679,6 @@ def generate_html_report(
       word-break: keep-all;
     }}
     .summary-list li:last-child {{ margin-bottom: 0; }}
-    /* 스토리 블록 (소제목 + 형광펜 요약 + 본문) */
     .story-block {{
       padding: 16px;
       background: #f8fafc;
@@ -601,7 +714,6 @@ def generate_html_report(
       color: #0f172a;
       background: linear-gradient(transparent 65%, #dbeafe 65%);
     }}
-    /* 경제 공부 카드 */
     .lesson-card {{
       background: var(--amber-bg);
       border: 1.5px solid var(--amber-border);
@@ -687,18 +799,51 @@ def generate_html_report(
     }}
     .impact-pos .impact-header {{ color: #be123c; }}
     .impact-neg .impact-header {{ color: #1d4ed8; }}
+    /* 수집 원문 링크 리스트 */
     .raw-list {{
-      font-size: 13.5px;
-      color: var(--sub);
-      padding-left: 18px;
-      margin: 8px 0 0;
+      list-style: none;
+      padding: 0;
+      margin: 10px 0 0;
     }}
-    .raw-list li {{ margin-bottom: 5px; }}
-    details summary {{
-      cursor: pointer;
-      font-weight: 700;
+    .raw-item {{
+      margin-bottom: 8px;
+    }}
+    .raw-link {{
+      display: block;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      color: #1e293b;
+      text-decoration: none;
+      font-size: 14px;
+      line-height: 1.45;
+      transition: background 0.15s;
+    }}
+    .raw-link:hover, .raw-link:active {{
+      background: #eff6ff;
+      border-color: #bfdbfe;
+    }}
+    .raw-source {{
+      font-weight: 800;
       color: var(--blue);
-      font-size: 15px;
+      margin-right: 4px;
+    }}
+    .raw-arrow {{
+      display: inline-block;
+      margin-left: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+      background: #e2e8f0;
+      padding: 1px 6px;
+      border-radius: 5px;
+    }}
+    .raw-cat-title {{
+      margin: 18px 0 8px;
+      font-size: 15.5px;
+      font-weight: 800;
+      color: #0f172a;
     }}
   </style>
 </head>
@@ -706,11 +851,11 @@ def generate_html_report(
   <div class="container">
     <!-- 상단 배너 -->
     <div class="hero">
-      <div class="hero-badge">🌅 모닝 주식 & 경제공부 리포트 · {date_label}</div>
+      <div class="hero-badge">🌅 모닝 주식·코인·금 & 경제공부 리포트 · {date_label}</div>
       <h1 class="hero-title">{headline_title}</h1>
     </div>
 
-    <!-- 한눈에 보는 4대 핵심 전광판 -->
+    <!-- 한눈에 보는 6대 핵심 전광판 -->
     <div class="metrics-grid">
       {metrics_grid_html}
     </div>
@@ -757,23 +902,41 @@ def generate_html_report(
       {kr_lessons_html}
     </div>
 
-    <!-- 3. 오늘 장 체크포인트 -->
+    <!-- 3. 비트코인 & 금 섹션 -->
     <div class="card">
-      <h2 class="section-title">🎯 3. 오늘 장 투자자 체크포인트</h2>
+      <h2 class="section-title">🪙 3. 비트코인(가상자산) & 🥇 금(안전자산) 해설</h2>
+      <div class="chart-grid">
+        <div class="chart-box">
+          <div class="chart-caption">₿ 비트코인 최근 30일 추이 (업비트 기준)</div>
+          {btc_svg_html}
+        </div>
+        <div class="chart-box">
+          <div class="chart-caption">🥇 국제 금 시세 추이 (3개월)</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/marketindex/month3/CMDT_GC_end.png?t={cache_bust}" alt="국제 금 시세 차트" loading="lazy">
+        </div>
+      </div>
+      {cg_blocks_html}
+      {cg_lessons_html}
+    </div>
+
+    <!-- 4. 오늘 장 체크포인트 -->
+    <div class="card">
+      <h2 class="section-title">🎯 4. 오늘의 투자자 체크포인트</h2>
       <ul class="summary-list">
         {checkpoints_html}
       </ul>
     </div>
 
-    <!-- 4. 수집 원문 헤드라인 -->
+    <!-- 5. 수집 원문 헤드라인 & 기사별 바로가기 링크 -->
     <div class="card">
-      <details>
-        <summary>📰 4대 매체(네이버·구글·인베스팅·야후) 수집 원문 헤드라인 보기</summary>
-        <h4 style="margin:14px 0 4px;">🇺🇸 미국/글로벌 증시</h4>
-        <ul class="raw-list">{raw_us_html}</ul>
-        <h4 style="margin:14px 0 4px;">🇰🇷 국내 증시</h4>
-        <ul class="raw-list">{raw_kr_html}</ul>
-      </details>
+      <h2 class="section-title">📰 5. 수집 원문 헤드라인 & 기사 바로가기</h2>
+      <p style="margin:0 0 10px;font-size:13.5px;color:#64748b;">각 기사 제목을 터치하면 해당 언론사의 원문 기사로 바로 이동합니다.</p>
+      <div class="raw-cat-title">🇺🇸 미국/글로벌 증시 원문</div>
+      <ul class="raw-list">{raw_us_html}</ul>
+      <div class="raw-cat-title">🇰🇷 국내 증시 원문</div>
+      <ul class="raw-list">{raw_kr_html}</ul>
+      <div class="raw-cat-title">🪙 비트코인 & 🥇 금 시황 원문</div>
+      <ul class="raw-list">{raw_cg_html}</ul>
     </div>
   </div>
 </body>
@@ -824,18 +987,18 @@ def send_kakao_memo(access_token: str, text: str, web_url: str) -> None:
 
 
 def prepare_report_and_message() -> Tuple[str, str, pathlib.Path]:
-    """4개 뉴스 소스 수집 -> AI 리포트 생성 -> HTML 저장 및 카톡 알림 1통 구성을 수행합니다."""
+    """4개 뉴스 소스(미·한 증시 + 비트코인·금) 수집 -> AI 리포트 생성 -> HTML 저장 및 카톡 알림 구성을 수행합니다."""
     load_local_env()
-    us_headlines, kr_headlines, news_images = collect_all_sources()
+    us_items, kr_items, crypto_gold_items, news_images = collect_all_sources()
 
     print(
-        f"[수집 완료] 미국/글로벌 뉴스 {len(us_headlines)}건, "
-        f"국내 증시 뉴스 {len(kr_headlines)}건, 이미지 {len(news_images)}건"
+        f"[수집 완료] 미국 {len(us_items)}건, 국내 {len(kr_items)}건, "
+        f"비트코인·금 {len(crypto_gold_items)}건, 이미지 {len(news_images)}건"
     )
 
-    report_data = summarize_with_ai(us_headlines, kr_headlines)
+    report_data = summarize_with_ai(us_items, kr_items, crypto_gold_items)
     html_path = generate_html_report(
-        report_data, us_headlines, kr_headlines, news_images
+        report_data, us_items, kr_items, crypto_gold_items, news_images
     )
     print(f"[웹 리포트 생성 완료] {html_path}")
 
@@ -843,7 +1006,7 @@ def prepare_report_and_message() -> Tuple[str, str, pathlib.Path]:
     today_str = datetime.datetime.now(kst).strftime("%m/%d")
     preview = report_data.get("kakao_preview", "").strip()
     footer = f"\n\n👉 전체 읽기:\n{REPORT_WEB_URL}"
-    header = f"🌅 모닝 증시 & 경제공부 ({today_str})\n\n"
+    header = f"🌅 모닝 증시·코인·금 ({today_str})\n\n"
     max_preview_len = 198 - len(header) - len(footer)
     if len(preview) > max_preview_len:
         preview = preview[: max_preview_len - 1] + "…"
@@ -859,7 +1022,7 @@ def main() -> None:
     load_local_env()
 
     parser = argparse.ArgumentParser(
-        description="4대 증시 뉴스를 수집하여 모바일 웹 리포트를 생성하고 카카오톡 알림을 발송합니다."
+        description="미·한 증시 및 비트코인·금 뉴스를 수집하여 모바일 웹 리포트를 생성하고 카카오톡 알림을 발송합니다."
     )
     parser.add_argument(
         "--dry-run",
