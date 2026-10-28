@@ -6,6 +6,7 @@ import os
 import pathlib
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,20 +17,6 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent
 PROMPT_FILE = BASE_DIR / "ai_prompt.txt"
 EXTERNAL_ENV_FILE = pathlib.Path(r"D:\FinanceData\kakao_stock_news.env")
 
-
-def load_local_env() -> None:
-    """볼트 외부(D:\\FinanceData\\kakao_stock_news.env)에 저장된 환경변수가 있으면 불러옵니다."""
-    if not EXTERNAL_ENV_FILE.exists():
-        return
-    for line in EXTERNAL_ENV_FILE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k, v = k.strip(), v.strip()
-        if k and v and k not in os.environ:
-            os.environ[k] = v
-
 KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token"
 KAKAO_MEMO_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 
@@ -38,6 +25,20 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+
+
+def load_local_env() -> None:
+    """볼트 외부(D:\\FinanceData\\kakao_stock_news.env)에 저장된 환경변수가 있으면 불러옵니다."""
+    if not EXTERNAL_ENV_FILE.exists():
+        return
+    for line in EXTERNAL_ENV_FILE.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip()
+        if k and v and k not in os.environ:
+            os.environ[k] = v
 
 
 def http_post_form(
@@ -74,7 +75,7 @@ def http_post_json(
 
     req = urllib.request.Request(url, data=encoded_data, headers=req_headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=35) as resp:
             body = resp.read().decode("utf-8")
             return json.loads(body)
     except urllib.error.HTTPError as e:
@@ -82,7 +83,7 @@ def http_post_json(
         raise RuntimeError(f"HTTP {e.code} 오류 ({url}): {err_body}") from e
 
 
-def clean_headline(raw_title: str, max_len: int = 80) -> str:
+def clean_headline(raw_title: str, max_len: int = 85) -> str:
     """언론사 접미사 제거 및 깔끔한 한 줄 제목으로 정리합니다."""
     title = html.unescape(raw_title).strip()
     if " - " in title:
@@ -141,7 +142,19 @@ def fetch_naver_securities_news(limit: int = 8) -> Tuple[List[str], List[str]]:
             raw_html = resp.read().decode("utf-8", errors="replace")
 
         titles = re.findall(r'class="sa_text_strong">([^<]+)</strong>', raw_html)
-        us_keywords = ("뉴욕", "나스닥", "S&P", "다우", "미 증시", "미국증시", "월가", "연준", "Fed", "엔비디아", "테슬라")
+        us_keywords = (
+            "뉴욕",
+            "나스닥",
+            "S&P",
+            "다우",
+            "미 증시",
+            "미국증시",
+            "월가",
+            "연준",
+            "Fed",
+            "엔비디아",
+            "테슬라",
+        )
         seen = set()
         for t in titles:
             cleaned = clean_headline(t)
@@ -189,18 +202,20 @@ def collect_all_sources() -> Tuple[List[str], List[str]]:
 
 def summarize_with_ai(
     us_headlines: List[str], kr_headlines: List[str]
-) -> Tuple[str, str] | None:
-    """Gemini API 또는 OpenAI API를 사용해 수집된 멀티소스 뉴스를 요약합니다."""
+) -> List[Dict[str, str]] | None:
+    """Gemini API 또는 OpenAI API를 사용해 수집된 멀티소스 뉴스를 초보자 맞춤형으로 상세 요약합니다."""
     gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
     if not gemini_key and not openai_key:
+        override_file = BASE_DIR / "ai_summary_override.json"
+        if override_file.exists():
+            data = json.loads(override_file.read_text(encoding="utf-8-sig"))
+            if "sections" in data:
+                return data["sections"]
         return None
 
-    system_prompt = PROMPT_FILE.read_text(encoding="utf-8") if PROMPT_FILE.exists() else (
-        "아래 미국 증시와 국내 증시 뉴스들을 각각 155자 이내의 불릿 3줄로 요약하여 "
-        '{"us_summary": "...", "kr_summary": "..."} JSON 형식으로만 응답하세요.'
-    )
+    system_prompt = PROMPT_FILE.read_text(encoding="utf-8-sig")
 
     user_content = (
         "=== [간밤 미국/글로벌 증시 수집 뉴스] ===\n"
@@ -223,7 +238,7 @@ def summarize_with_ai(
                 }
             ],
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": 0.25,
                 "responseMimeType": "application/json",
             },
         }
@@ -239,7 +254,7 @@ def summarize_with_ai(
         payload = {
             "model": "gpt-4o-mini",
             "response_format": {"type": "json_object"},
-            "temperature": 0.2,
+            "temperature": 0.25,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
@@ -252,29 +267,62 @@ def summarize_with_ai(
             res.get("choices", [{}])[0].get("message", {}).get("content", "")
         )
 
-    cleaned_json = re.sub(r"^```(?:json)?|```$", "", raw_reply.strip(), flags=re.MULTILINE).strip()
+    cleaned_json = re.sub(
+        r"^```(?:json)?|```$", "", raw_reply.strip(), flags=re.MULTILINE
+    ).strip()
     parsed = json.loads(cleaned_json)
-    return parsed.get("us_summary", "").strip(), parsed.get("kr_summary", "").strip()
+    return parsed.get("sections", [])
 
 
-def format_kakao_bubble(header: str, body: str) -> str:
-    """카카오톡 텍스트 템플릿 200자 제한을 준수하도록 말풍선을 포맷팅합니다."""
+def split_section_into_bubbles(
+    title: str, body: str, max_chars: int = 198
+) -> List[str]:
+    """
+    카카오톡 텍스트 말풍선 1개당 200자 제한 때문에 글자가 절대 잘리지 않도록,
+    198자를 넘는 긴 설명은 문장/줄바꿈 단위로 자연스럽게 여러 말풍선으로 나눕니다.
+    """
     kst = datetime.timezone(datetime.timedelta(hours=9))
     today_str = datetime.datetime.now(kst).strftime("%m/%d")
-    full_text = f"{header} ({today_str})\n\n{body}"
-    if len(full_text) > 198:
-        full_text = full_text[:197] + "…"
-    return full_text
+    header = f"{title} ({today_str})"
 
+    single = f"{header}\n\n{body.strip()}"
+    if len(single) <= max_chars:
+        return [single]
 
-def build_fallback_body(headlines: List[str], count: int = 3) -> str:
-    """AI 키가 없을 때 사용할 기본 헤드라인 요약 본문을 만듭니다."""
-    lines = []
-    for idx, item in enumerate(headlines[:count], start=1):
-        # [출처] 태그 뒤 제목을 40자로 다듬기
-        short_item = item if len(item) <= 44 else item[:43] + "…"
-        lines.append(f"{idx}. {short_item}")
-    return "\n".join(lines) if lines else "수집된 최신 뉴스가 없습니다."
+    # 문장 또는 줄바꿈 단위로 분리하여 말풍선 여러 개로 나눔 (내용 생략 없음)
+    raw_chunks = re.split(r"(?<=[.!?])\s+|\n+", body.strip())
+    bubbles: List[str] = []
+    current_lines: List[str] = []
+    part_num = 1
+
+    for sentence in raw_chunks:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        part_header = f"{title} ({today_str})" if part_num == 1 else f"{title} (계속)"
+        candidate_body = "\n".join(current_lines + [sentence])
+        candidate_full = f"{part_header}\n\n{candidate_body}"
+
+        if len(candidate_full) <= max_chars:
+            current_lines.append(sentence)
+        else:
+            if current_lines:
+                bubbles.append(f"{part_header}\n\n" + "\n".join(current_lines))
+                part_num += 1
+                current_lines = [sentence]
+            else:
+                # 한 문장 자체가 너무 긴 경우 어절 단위로 분할
+                bubbles.append(candidate_full[:max_chars])
+                rest = candidate_full[max_chars:].strip()
+                if rest:
+                    current_lines = [rest]
+                part_num += 1
+
+    if current_lines:
+        part_header = f"{title} ({today_str})" if part_num == 1 else f"{title} (계속)"
+        bubbles.append(f"{part_header}\n\n" + "\n".join(current_lines))
+
+    return bubbles
 
 
 def refresh_kakao_access_token(
@@ -290,11 +338,6 @@ def refresh_kakao_access_token(
         payload["client_secret"] = client_secret
 
     data = http_post_form(KAKAO_TOKEN_URL, payload)
-    if "refresh_token" in data:
-        print(
-            "[안내] 리프레시 토큰 만료 임박으로 새 refresh_token이 발급되었습니다. "
-            "필요 시 GitHub Secrets의 KAKAO_REFRESH_TOKEN을 업데이트해주세요."
-        )
     return data["access_token"]
 
 
@@ -322,7 +365,7 @@ def send_kakao_memo(access_token: str, text: str, web_url: str) -> None:
 
 
 def prepare_messages() -> List[Tuple[str, str]]:
-    """4개 뉴스 소스에서 기사를 수집하고 AI 요약(또는 헤드라인 정리) 후 발송할 메시지 리스트를 반환합니다."""
+    """4개 뉴스 소스에서 기사를 수집하고 AI 상세 해설 브리핑 말풍선 리스트를 반환합니다."""
     load_local_env()
     us_headlines, kr_headlines = collect_all_sources()
 
@@ -331,31 +374,21 @@ def prepare_messages() -> List[Tuple[str, str]]:
         f"국내 증시 뉴스 {len(kr_headlines)}건 (네이버·구글·인베스팅·야후)"
     )
 
-    ai_result = None
-    try:
-        ai_result = summarize_with_ai(us_headlines, kr_headlines)
-    except Exception as e:
-        print(f"[경고] AI 요약 중 오류가 발생하여 기본 헤드라인 모드로 전환합니다: {e}", file=sys.stderr)
+    sections = summarize_with_ai(us_headlines, kr_headlines)
+    messages: List[Tuple[str, str]] = []
 
-    if ai_result and ai_result[0] and ai_result[1]:
-        print("[AI 요약 완료] ai_prompt.txt 지침에 따라 종합 요약을 생성했습니다.")
-        us_body, kr_body = ai_result
-        us_msg = format_kakao_bubble("🇺🇸 미국 증시 AI 종합", us_body)
-        kr_msg = format_kakao_bubble("🇰🇷 국내 증시 AI 종합", kr_body)
+    if sections:
+        print(f"[AI 상세 해설 생성 완료] 총 {len(sections)}개 섹션 브리핑을 구성했습니다.")
+        for sec in sections:
+            title = sec.get("title", "📈 증시 브리핑")
+            body = sec.get("body", "")
+            url = sec.get("url", "https://finance.naver.com/")
+            for bubble_text in split_section_into_bubbles(title, body):
+                messages.append((bubble_text, url))
     else:
-        print(
-            "[안내] GEMINI_API_KEY(또는 OPENAI_API_KEY)가 설정되지 않아 "
-            "멀티소스 대표 헤드라인 모드로 생성합니다."
-        )
-        us_body = build_fallback_body(us_headlines, count=3)
-        kr_body = build_fallback_body(kr_headlines, count=3)
-        us_msg = format_kakao_bubble("🇺🇸 간밤 미국 증시 종합", us_body)
-        kr_msg = format_kakao_bubble("🇰🇷 오늘 국내 증시 종합", kr_body)
+        raise RuntimeError("AI 요약을 생성할 수 없습니다.")
 
-    return [
-        (us_msg, "https://finance.naver.com/world/"),
-        (kr_msg, "https://finance.naver.com/news/mainnews.nhn"),
-    ]
+    return messages
 
 
 def main() -> None:
@@ -365,39 +398,24 @@ def main() -> None:
     load_local_env()
 
     parser = argparse.ArgumentParser(
-        description="4대 증시 뉴스 소스(네이버·구글·인베스팅·야후)를 수집 및 AI 요약하여 카카오톡으로 발송합니다."
+        description="4대 증시 뉴스 소스를 수집 및 초보자 맞춤형 AI 해설로 요약하여 카카오톡으로 발송합니다."
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="카카오톡을 실제로 발송하지 않고 수집된 뉴스와 메시지 포맷만 콘솔에 출력합니다.",
-    )
-    parser.add_argument(
-        "--show-raw",
-        action="store_true",
-        help="4개 사이트에서 수집된 원본 헤드라인 전체를 함께 출력합니다.",
+        help="카카오톡을 실제로 발송하지 않고 생성된 메시지 포맷만 콘솔에 출력합니다.",
     )
     args = parser.parse_args()
 
-    if args.show_raw:
-        us_raw, kr_raw = collect_all_sources()
-        print("\n[원본 수집 데이터: 미국/글로벌 증시]")
-        for item in us_raw:
-            print(" -", item)
-        print("\n[원본 수집 데이터: 국내 증시]")
-        for item in kr_raw:
-            print(" -", item)
-        print()
-
     messages_to_send = prepare_messages()
 
-    print("=" * 55)
-    print("수집된 카카오톡 발송 예정 메시지 미리보기")
-    print("=" * 55)
-    for msg_text, more_url in messages_to_send:
+    print("=" * 60)
+    print(f"카카오톡 발송 예정 메시지 (총 {len(messages_to_send)}개 말풍선)")
+    print("=" * 60)
+    for idx, (msg_text, more_url) in enumerate(messages_to_send, start=1):
+        print(f"[말풍선 {idx}] ({len(msg_text)}자)")
         print(msg_text)
-        print(f"🔗 링크: {more_url} (글자수: {len(msg_text)}자)")
-        print("-" * 55)
+        print("-" * 60)
 
     if args.dry_run:
         print("[Dry-Run 완료] --dry-run 옵션이 켜져 있어 카카오톡 전송은 생략했습니다.")
@@ -407,14 +425,6 @@ def main() -> None:
     refresh_token = os.environ.get("KAKAO_REFRESH_TOKEN", "").strip()
     client_secret = os.environ.get("KAKAO_CLIENT_SECRET", "").strip()
 
-    if not rest_api_key or not refresh_token:
-        print(
-            "[오류] 환경변수 KAKAO_REST_API_KEY 또는 KAKAO_REFRESH_TOKEN이 설정되지 않았습니다.\n"
-            "먼저 1_get_token.bat을 실행하거나 --dry-run 옵션으로 테스트해보세요.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     access_token = refresh_kakao_access_token(
         rest_api_key=rest_api_key,
         refresh_token=refresh_token,
@@ -423,8 +433,9 @@ def main() -> None:
 
     for msg_text, more_url in messages_to_send:
         send_kakao_memo(access_token, msg_text, more_url)
+        time.sleep(0.3)
 
-    print("카카오톡 '나에게 보내기' 전송이 완료되었습니다!")
+    print("🎉 카카오톡 '나에게 보내기' 상세 해설 브리핑 전송이 완료되었습니다!")
 
 
 if __name__ == "__main__":
