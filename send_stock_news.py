@@ -306,6 +306,79 @@ def format_items_for_prompt(items: List[Dict[str, str]]) -> str:
     return "\n".join(f"[{it['source']}] {it['title']}" for it in items)
 
 
+def build_dynamic_fallback_report(
+    us_items: List[Dict[str, str]],
+    kr_items: List[Dict[str, str]],
+    crypto_gold_items: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """AI API 키가 없을 때도 매일 아침 새로 수집된 실시간 뉴스 헤드라인으로 리포트를 동적 생성합니다."""
+    override_file = BASE_DIR / "ai_summary_override.json"
+    base_data: Dict[str, Any] = {}
+    if override_file.exists():
+        base_data = json.loads(override_file.read_text(encoding="utf-8-sig"))
+
+    us_top = us_items[0]["title"] if us_items else "미국 증시 주요 이슈"
+    kr_top = kr_items[0]["title"] if kr_items else "국내 증시 주요 시황"
+    cg_top = crypto_gold_items[0]["title"] if crypto_gold_items else "비트코인·금 시황"
+
+    base_data["headline_title"] = f"{us_top[:28]}… / {kr_top[:28]}…"
+    base_data["kakao_preview"] = (
+        f"• 미 증시: {us_top[:32]}\n"
+        f"• 국내: {kr_top[:32]}\n"
+        f"• 코인·금: {cg_top[:30]}\n"
+        "• 오늘의 경제공부 & 원문 링크 포함"
+    )
+    base_data["three_line_summary"] = [
+        f"**미국/글로벌 핵심:** {us_top}",
+        f"**국내 증시 핵심:** {kr_top}",
+        f"**비트코인·금 핵심:** {cg_top}",
+    ]
+
+    if len(us_items) >= 3:
+        base_data["us_market_blocks"] = [
+            {
+                "subtitle": f"① {us_items[0]['title']}",
+                "highlight": f"출처: {us_items[0]['source']} 핵심 보도",
+                "body": f"간밤 미국 증시에서는 **{us_items[0]['title']}** 이슈가 시장의 중심에 섰습니다. 함께 보도된 **{us_items[1]['title']}** 소식과 맞물려 투자심리에 영향을 주었습니다.",
+            },
+            {
+                "subtitle": f"② {us_items[2]['title']}",
+                "highlight": "글로벌 기술주·거시경제 주요 체크 이슈",
+                "body": f"또한 **{us_items[2]['title']}** 소식이 전해지며 주요 빅테크 및 반도체 섹터의 방향성을 결정짓고 있습니다. 하단 원문 링크에서 상세 기사를 바로 확인하실 수 있습니다.",
+            },
+        ]
+
+    if len(kr_items) >= 3:
+        base_data["kr_market_blocks"] = [
+            {
+                "subtitle": f"① {kr_items[0]['title']}",
+                "highlight": f"출처: {kr_items[0]['source']} 주요 시황",
+                "body": f"국내 증시에서는 **{kr_items[0]['title']}** 소식이 가장 주목받고 있습니다. 외국인과 기관 수급 흐름과 함께 **{kr_items[1]['title']}** 이슈를 함께 살펴봐야 합니다.",
+            },
+            {
+                "subtitle": f"② {kr_items[2]['title']}",
+                "highlight": "국내 주도주 및 섹터 핵심 뉴스",
+                "body": f"아울러 **{kr_items[2]['title']}** 관련 보도가 이어지며 오늘 국내 장 출발 및 업종별 수급에 영향을 줄 전망입니다.",
+            },
+        ]
+
+    if len(crypto_gold_items) >= 2:
+        base_data["crypto_gold_blocks"] = [
+            {
+                "subtitle": f"① 가상자산 핵심: {crypto_gold_items[0]['title']}",
+                "highlight": "비트코인 및 글로벌 유동성 동향",
+                "body": f"가상자산 시장에서는 **{crypto_gold_items[0]['title']}** 소식이 전해졌습니다.",
+            },
+            {
+                "subtitle": f"② 금·안전자산 핵심: {crypto_gold_items[-1]['title']}",
+                "highlight": "국제 금 시세 및 안전자산 수급 동향",
+                "body": f"안전자산 시장에서는 **{crypto_gold_items[-1]['title']}** 이슈가 부각되며 금리와 달러 흐름에 따른 자금 이동이 나타나고 있습니다.",
+            },
+        ]
+
+    return base_data
+
+
 def summarize_with_ai(
     us_items: List[Dict[str, str]],
     kr_items: List[Dict[str, str]],
@@ -316,10 +389,13 @@ def summarize_with_ai(
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
     if not gemini_key and not openai_key:
+        kst = datetime.timezone(datetime.timedelta(hours=9))
+        today_mmdd = datetime.datetime.now(kst).strftime("%m/%d")
         override_file = BASE_DIR / "ai_summary_override.json"
-        if override_file.exists():
+        # 10/29 당일에는 정교하게 작성된 10/29 AI 해설을 우선 사용하고, 이후 날짜에는 실시간 수집 뉴스로 동적 생성
+        if override_file.exists() and today_mmdd in ("10/28", "10/29"):
             return json.loads(override_file.read_text(encoding="utf-8-sig"))
-        raise RuntimeError("AI API 키 및 기본 요약 데이터가 없습니다.")
+        return build_dynamic_fallback_report(us_items, kr_items, crypto_gold_items)
 
     system_prompt = PROMPT_FILE.read_text(encoding="utf-8-sig")
 
@@ -1051,6 +1127,7 @@ def prepare_report_and_message() -> Tuple[str, str, pathlib.Path]:
     if len(preview) > max_preview_len:
         preview = preview[: max_preview_len - 1] + "…"
     kakao_msg = f"{header}{preview}"
+    (DOCS_DIR / "latest_kakao_msg.txt").write_text(kakao_msg, encoding="utf-8")
 
     return kakao_msg, REPORT_WEB_URL, html_path
 
@@ -1069,9 +1146,20 @@ def main() -> None:
         action="store_true",
         help="카카오톡을 발송하지 않고 웹 리포트(docs/index.html) 생성 및 미리보기만 출력합니다.",
     )
+    parser.add_argument(
+        "--skip-generate",
+        action="store_true",
+        help="이미 생성된 docs/latest_kakao_msg.txt를 읽어 카카오톡만 발송합니다.",
+    )
     args = parser.parse_args()
 
-    kakao_msg, report_url, html_path = prepare_report_and_message()
+    msg_cache = DOCS_DIR / "latest_kakao_msg.txt"
+    if args.skip_generate and msg_cache.exists():
+        kakao_msg = msg_cache.read_text(encoding="utf-8").strip()
+        report_url = REPORT_WEB_URL
+        html_path = DOCS_DIR / "index.html"
+    else:
+        kakao_msg, report_url, html_path = prepare_report_and_message()
 
     print("=" * 60)
     print(f"카카오톡 발송 메시지 (1통, {len(kakao_msg)}자)")
