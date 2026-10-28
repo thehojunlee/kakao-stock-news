@@ -85,6 +85,13 @@ def http_post_json(
         raise RuntimeError(f"HTTP {e.code} 오류 ({url}): {err_body}") from e
 
 
+def format_rich_text(text: str) -> str:
+    """HTML 이스케이프 후 **강조** 문법을 <strong> 태그로, 줄바꿈을 <br>로 변환합니다."""
+    escaped = html.escape(text)
+    bolded = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+    return bolded.replace("\n", "<br>")
+
+
 def clean_headline(raw_title: str, max_len: int = 90) -> str:
     """언론사 접미사 제거 및 깔끔한 한 줄 제목으로 정리합니다."""
     title = html.unescape(raw_title).strip()
@@ -96,12 +103,17 @@ def clean_headline(raw_title: str, max_len: int = 90) -> str:
     return title
 
 
-def fetch_rss_items(rss_url: str, source_label: str, limit: int = 5) -> List[str]:
-    """지정된 RSS URL에서 최신 뉴스 제목 목록을 가져옵니다."""
+def fetch_rss_items(
+    rss_url: str, source_label: str, limit: int = 5
+) -> Tuple[List[str], List[str]]:
+    """지정된 RSS URL에서 최신 뉴스 제목 목록과 썸네일 이미지 URL을 가져옵니다."""
     try:
         req = urllib.request.Request(rss_url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=15) as resp:
             xml_bytes = resp.read()
+        raw_text = xml_bytes.decode("utf-8", errors="replace")
+        images = re.findall(r'url="(https://content-media\.investing\.com/[^"]+)"', raw_text)
+
         root = ET.fromstring(xml_bytes)
         results = []
         seen = set()
@@ -117,10 +129,10 @@ def fetch_rss_items(rss_url: str, source_label: str, limit: int = 5) -> List[str
             results.append(f"[{source_label}] {cleaned}")
             if len(results) >= limit:
                 break
-        return results
+        return results, images
     except Exception as e:
         print(f"[경고] {source_label} 수집 중 오류 발생 (건너뜀): {e}", file=sys.stderr)
-        return []
+        return [], []
 
 
 def fetch_google_news_rss(query: str, source_label: str, limit: int = 5) -> List[str]:
@@ -130,7 +142,8 @@ def fetch_google_news_rss(query: str, source_label: str, limit: int = 5) -> List
         f"https://news.google.com/rss/search?q={encoded_query}"
         f"&hl=ko&gl=KR&ceid=KR:ko"
     )
-    return fetch_rss_items(rss_url, source_label=source_label, limit=limit)
+    items, _ = fetch_rss_items(rss_url, source_label=source_label, limit=limit)
+    return items
 
 
 def fetch_naver_securities_news(limit: int = 8) -> Tuple[List[str], List[str]]:
@@ -175,8 +188,8 @@ def fetch_naver_securities_news(limit: int = 8) -> Tuple[List[str], List[str]]:
     return us_list, kr_list
 
 
-def collect_all_sources() -> Tuple[List[str], List[str]]:
-    """4대 뉴스 소스(네이버 증권, 구글 뉴스, 인베스팅닷컴, 야후 파이낸스)를 종합 수집합니다."""
+def collect_all_sources() -> Tuple[List[str], List[str], List[str]]:
+    """4대 뉴스 소스(네이버 증권, 구글 뉴스, 인베스팅닷컴, 야후 파이낸스)와 뉴스 이미지를 수집합니다."""
     naver_us, naver_kr = fetch_naver_securities_news(limit=5)
 
     google_us = fetch_google_news_rss(
@@ -188,10 +201,10 @@ def collect_all_sources() -> Tuple[List[str], List[str]]:
         limit=5,
     )
 
-    investing_all = fetch_rss_items(
+    investing_all, investing_imgs = fetch_rss_items(
         "https://kr.investing.com/rss/news_25.rss", source_label="인베스팅닷컴", limit=6
     )
-    yahoo_us = fetch_rss_items(
+    yahoo_us, _ = fetch_rss_items(
         "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EIXIC,%5EDJI&region=US&lang=en-US",
         source_label="Yahoo파이낸스",
         limit=5,
@@ -199,7 +212,7 @@ def collect_all_sources() -> Tuple[List[str], List[str]]:
 
     us_headlines = naver_us + google_us + investing_all[:3] + yahoo_us
     kr_headlines = naver_kr + google_kr + investing_all[3:]
-    return us_headlines, kr_headlines
+    return us_headlines, kr_headlines, investing_imgs
 
 
 def summarize_with_ai(
@@ -273,24 +286,58 @@ def summarize_with_ai(
     return json.loads(cleaned_json)
 
 
+def render_story_blocks(blocks: List[Dict[str, str]]) -> str:
+    """소제목 + 형광펜 핵심 요약 + 굵은 글씨 본문 블록을 렌더링합니다."""
+    out = []
+    for b in blocks:
+        subtitle = html.escape(b.get("subtitle", ""))
+        highlight = format_rich_text(b.get("highlight", ""))
+        body = format_rich_text(b.get("body", ""))
+        out.append(
+            f"""
+            <div class="story-block">
+              <h3 class="story-subtitle">{subtitle}</h3>
+              <div class="story-highlight">💡 {highlight}</div>
+              <p class="story-body">{body}</p>
+            </div>
+            """
+        )
+    return "\n".join(out)
+
+
 def render_lesson_cards(lessons: List[Dict[str, str]]) -> str:
-    """초보자용 경제 공부 카드 HTML을 렌더링합니다."""
+    """초보자용 경제 공부 카드(인과관계 화살표 공식 + 호재/악재 비교 박스)를 렌더링합니다."""
     cards = []
     for item in lessons:
         term = html.escape(item.get("term", ""))
-        why = html.escape(item.get("why_in_news", ""))
-        easy = html.escape(item.get("easy_explanation", "")).replace("\n", "<br>")
-        impact = html.escape(item.get("up_down_impact", "")).replace("\n", "<br>")
+        why = format_rich_text(item.get("why_in_news", ""))
+        easy = format_rich_text(item.get("easy_explanation", ""))
+        flow = html.escape(item.get("flow_formula", ""))
+        pos = format_rich_text(item.get("positive_case", ""))
+        neg = format_rich_text(item.get("negative_case", ""))
+
+        flow_html = (
+            f'<div class="flow-diagram"><span class="flow-tag">🧭 한 줄 공식</span> {flow}</div>'
+            if flow
+            else ""
+        )
+
         cards.append(
             f"""
             <div class="lesson-card">
-              <div class="lesson-badge">📚 오늘의 경제 공부</div>
+              <div class="lesson-badge">📚 주린이 탈출 · 오늘의 경제 공부</div>
               <h4 class="lesson-title">Q. {term}이(가) 뭔가요?</h4>
-              <p class="lesson-why">💬 <strong>뉴스 맥락:</strong> {why}</p>
-              <div class="lesson-box">
-                <p><strong>💡 쉬운 개념 설명</strong><br>{easy}</p>
-                <div class="impact-box">
-                  <strong>📈 주가에는 어떤 영향을 주나요?</strong><br>{impact}
+              <p class="lesson-why">📰 {why}</p>
+              <div class="lesson-easy">{easy}</div>
+              {flow_html}
+              <div class="impact-grid">
+                <div class="impact-pos">
+                  <div class="impact-header">📈 주가에 긍정적일 때 (호재 원리)</div>
+                  <div>{pos}</div>
+                </div>
+                <div class="impact-neg">
+                  <div class="impact-header">📉 주가에 부담될 때 (주의 원리)</div>
+                  <div>{neg}</div>
                 </div>
               </div>
             </div>
@@ -300,167 +347,353 @@ def render_lesson_cards(lessons: List[Dict[str, str]]) -> str:
 
 
 def generate_html_report(
-    report_data: Dict[str, Any], us_headlines: List[str], kr_headlines: List[str]
+    report_data: Dict[str, Any],
+    us_headlines: List[str],
+    kr_headlines: List[str],
+    news_images: List[str],
 ) -> pathlib.Path:
-    """모바일 카카오톡 인앱 브라우저에 최적화된 상세 뉴스레터 웹페이지(docs/index.html)를 생성합니다."""
+    """시각적 차트 이미지와 가독성 높은 카드 레이아웃을 갖춘 모바일 리포트(docs/index.html)를 생성합니다."""
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
     kst = datetime.timezone(datetime.timedelta(hours=9))
     now_kst = datetime.datetime.now(kst)
     weekdays_kr = ["월", "화", "수", "목", "금", "토", "일"]
     date_label = f"{now_kst.year}년 {now_kst.month:02d}월 {now_kst.day:02d}일 ({weekdays_kr[now_kst.weekday()]})"
+    cache_bust = now_kst.strftime("%Y%m%d%H")
 
     headline_title = html.escape(
         report_data.get("headline_title", "오늘의 미·한 증시 & 경제공부 브리핑")
     )
+
+    # 1. 상단 4대 시장 지표 전광판
+    metrics_html_list = []
+    for m in report_data.get("market_metrics", []):
+        trend = m.get("trend", "neutral")
+        trend_class = "metric-up" if trend == "up" else ("metric-down" if trend == "down" else "metric-neutral")
+        metrics_html_list.append(
+            f"""
+            <div class="metric-card {trend_class}">
+              <div class="metric-label">{html.escape(m.get('label', ''))}</div>
+              <div class="metric-value">{html.escape(m.get('value', ''))}</div>
+              <div class="metric-sub">{html.escape(m.get('sub', ''))}</div>
+            </div>
+            """
+        )
+    metrics_grid_html = "\n".join(metrics_html_list)
+
+    # 2. 3줄 요약
     three_lines = "\n".join(
-        f"<li>{html.escape(line)}</li>"
+        f"<li>{format_rich_text(line)}</li>"
         for line in report_data.get("three_line_summary", [])
     )
-    us_paragraphs = "\n".join(
-        f"<p>{html.escape(p)}</p>" for p in report_data.get("us_market_story", [])
-    )
-    kr_paragraphs = "\n".join(
-        f"<p>{html.escape(p)}</p>" for p in report_data.get("kr_market_story", [])
-    )
+
+    # 3. 미국/국내 스토리 블록 & 경제 공부 카드
+    us_blocks_html = render_story_blocks(report_data.get("us_market_blocks", []))
+    kr_blocks_html = render_story_blocks(report_data.get("kr_market_blocks", []))
     us_lessons_html = render_lesson_cards(report_data.get("us_econ_lessons", []))
     kr_lessons_html = render_lesson_cards(report_data.get("kr_econ_lessons", []))
 
     checkpoints_html = "\n".join(
-        f"<li>{html.escape(cp)}</li>"
+        f"<li>{format_rich_text(cp)}</li>"
         for cp in report_data.get("today_checkpoints", [])
     )
     raw_us_html = "\n".join(f"<li>{html.escape(h)}</li>" for h in us_headlines[:10])
     raw_kr_html = "\n".join(f"<li>{html.escape(h)}</li>" for h in kr_headlines[:10])
+
+    featured_photo = (
+        news_images[0]
+        if news_images
+        else "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1000&q=80"
+    )
 
     html_doc = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>🌅 아침 주식 & 경제공부 브리핑 ({now_kst.strftime('%m/%d')})</title>
+  <title>🌅 모닝 주식 & 경제공부 리포트 ({now_kst.month:02d}/{now_kst.day:02d})</title>
   <style>
     :root {{
-      --bg: #f4f6f9;
+      --bg: #f2f4f8;
       --card: #ffffff;
       --text: #191f28;
       --sub: #4e5968;
-      --blue: #3182f6;
-      --blue-bg: #e8f3ff;
-      --amber-bg: #fff8eb;
-      --amber-border: #ffd180;
+      --blue: #2563eb;
+      --red: #e11d48;
+      --red-bg: #fff1f2;
+      --green: #059669;
+      --green-bg: #ecfdf5;
+      --amber-bg: #fffbeb;
+      --amber-border: #fde68a;
       --border: #e5e8eb;
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
-      padding: 16px 12px 48px;
+      padding: 14px 12px 56px;
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
-      line-height: 1.68;
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+      line-height: 1.72;
       font-size: 16px;
+      -webkit-font-smoothing: antialiased;
     }}
     .container {{
       max-width: 640px;
       margin: 0 auto;
     }}
+    /* 상단 히어로 배너 (배경 이미지 + 그라데이션 오버레이) */
     .hero {{
-      background: linear-gradient(135deg, #1b3a6b 0%, #2563eb 100%);
+      position: relative;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 58, 138, 0.84) 100%),
+                  url('{featured_photo}') center/cover no-repeat;
       color: #fff;
-      padding: 24px 20px;
-      border-radius: 18px;
+      padding: 28px 22px;
+      border-radius: 20px;
       margin-bottom: 16px;
-      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.18);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
     }}
-    .hero-date {{
-      font-size: 13px;
-      opacity: 0.85;
-      margin-bottom: 6px;
+    .hero-badge {{
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(4px);
+      padding: 4px 11px;
+      border-radius: 99px;
+      font-size: 12.5px;
+      font-weight: 600;
+      margin-bottom: 10px;
     }}
     .hero-title {{
       margin: 0;
-      font-size: 21px;
+      font-size: 22px;
       font-weight: 800;
-      line-height: 1.4;
+      line-height: 1.42;
+      word-break: keep-all;
     }}
+    /* 4대 핵심 지표 전광판 그리드 */
+    .metrics-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }}
+    .metric-card {{
+      background: var(--card);
+      border-radius: 15px;
+      padding: 14px 15px;
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+    }}
+    .metric-label {{
+      font-size: 13px;
+      color: var(--sub);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }}
+    .metric-value {{
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }}
+    .metric-up .metric-value {{ color: var(--red); }}
+    .metric-down .metric-value {{ color: var(--blue); }}
+    .metric-neutral .metric-value {{ color: #1e293b; }}
+    .metric-sub {{
+      font-size: 12px;
+      color: var(--sub);
+      margin-top: 2px;
+    }}
+    /* 공통 카드 */
     .card {{
       background: var(--card);
-      border-radius: 16px;
-      padding: 20px;
-      margin-bottom: 16px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+      border-radius: 18px;
+      padding: 22px 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
       border: 1px solid var(--border);
     }}
     .section-title {{
-      margin: 0 0 14px;
-      font-size: 18px;
+      margin: 0 0 16px;
+      font-size: 19px;
       font-weight: 800;
       display: flex;
       align-items: center;
-      gap: 6px;
-      border-bottom: 2px solid #f2f4f6;
-      padding-bottom: 10px;
+      gap: 7px;
+      border-bottom: 2px solid #f1f5f9;
+      padding-bottom: 12px;
+      color: #0f172a;
     }}
+    /* 차트 이미지 그리드 */
+    .chart-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 18px;
+    }}
+    @media (max-width: 480px) {{
+      .chart-grid {{
+        grid-template-columns: 1fr;
+      }}
+    }}
+    .chart-box {{
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 10px;
+      text-align: center;
+    }}
+    .chart-caption {{
+      font-size: 13px;
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 6px;
+    }}
+    .chart-box img {{
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      background: #fff;
+      display: block;
+    }}
+    /* 3줄 핵심 요약 */
     .summary-list {{
       margin: 0;
       padding-left: 20px;
     }}
     .summary-list li {{
-      margin-bottom: 10px;
-      font-weight: 500;
-    }}
-    .story p {{
-      margin: 0 0 14px;
-      color: #2b333e;
+      margin-bottom: 12px;
+      font-size: 15.5px;
       word-break: keep-all;
     }}
+    .summary-list li:last-child {{ margin-bottom: 0; }}
+    /* 스토리 블록 (소제목 + 형광펜 요약 + 본문) */
+    .story-block {{
+      padding: 16px;
+      background: #f8fafc;
+      border-radius: 14px;
+      margin-bottom: 14px;
+      border: 1px solid #eef2f6;
+    }}
+    .story-subtitle {{
+      margin: 0 0 8px;
+      font-size: 16.5px;
+      font-weight: 800;
+      color: #1e293b;
+      word-break: keep-all;
+    }}
+    .story-highlight {{
+      background: #fef08a;
+      color: #1e293b;
+      padding: 7px 11px;
+      border-radius: 8px;
+      font-size: 14.5px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      line-height: 1.5;
+      word-break: keep-all;
+    }}
+    .story-body {{
+      margin: 0;
+      font-size: 15.5px;
+      color: #334155;
+      word-break: keep-all;
+    }}
+    .story-body strong {{
+      color: #0f172a;
+      background: linear-gradient(transparent 65%, #dbeafe 65%);
+    }}
+    /* 경제 공부 카드 */
     .lesson-card {{
       background: var(--amber-bg);
-      border: 1px solid var(--amber-border);
-      border-radius: 14px;
-      padding: 16px;
-      margin-top: 16px;
+      border: 1.5px solid var(--amber-border);
+      border-radius: 16px;
+      padding: 18px 16px;
+      margin-top: 18px;
     }}
     .lesson-badge {{
       display: inline-block;
-      background: #ff9800;
+      background: #d97706;
       color: #fff;
       font-size: 12px;
-      font-weight: 700;
-      padding: 3px 9px;
+      font-weight: 800;
+      padding: 4px 10px;
       border-radius: 99px;
       margin-bottom: 8px;
     }}
     .lesson-title {{
-      margin: 0 0 8px;
-      font-size: 16.5px;
-      color: #191f28;
+      margin: 0 0 6px;
+      font-size: 17.5px;
+      font-weight: 800;
+      color: #111827;
     }}
     .lesson-why {{
       margin: 0 0 10px;
-      font-size: 14px;
-      color: var(--sub);
+      font-size: 13.5px;
+      color: #6b7280;
     }}
-    .lesson-box p {{
-      margin: 0 0 12px;
+    .lesson-easy {{
+      background: #ffffff;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 15px;
+      margin-bottom: 10px;
+      border: 1px solid #fde68a;
+      word-break: keep-all;
+    }}
+    .flow-diagram {{
+      background: #1e293b;
+      color: #f8fafc;
+      padding: 11px 13px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      line-height: 1.5;
+      word-break: keep-all;
+    }}
+    .flow-tag {{
+      display: inline-block;
+      background: #3b82f6;
+      color: #fff;
+      font-size: 11.5px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      margin-right: 6px;
+    }}
+    .impact-grid {{
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }}
+    .impact-pos {{
+      background: var(--red-bg);
+      border-left: 4px solid var(--red);
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14.5px;
+      word-break: keep-all;
+    }}
+    .impact-neg {{
+      background: #eff6ff;
+      border-left: 4px solid var(--blue);
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14.5px;
+      word-break: keep-all;
+    }}
+    .impact-header {{
+      font-weight: 800;
+      margin-bottom: 4px;
       font-size: 15px;
     }}
-    .impact-box {{
-      background: #ffffff;
-      border-radius: 10px;
-      padding: 12px 14px;
-      font-size: 14.5px;
-      border-left: 4px solid var(--blue);
-    }}
+    .impact-pos .impact-header {{ color: #be123c; }}
+    .impact-neg .impact-header {{ color: #1d4ed8; }}
     .raw-list {{
       font-size: 13.5px;
       color: var(--sub);
       padding-left: 18px;
       margin: 8px 0 0;
     }}
-    .raw-list li {{
-      margin-bottom: 5px;
-    }}
+    .raw-list li {{ margin-bottom: 5px; }}
     details summary {{
       cursor: pointer;
       font-weight: 700;
@@ -471,11 +704,18 @@ def generate_html_report(
 </head>
 <body>
   <div class="container">
+    <!-- 상단 배너 -->
     <div class="hero">
-      <div class="hero-date">🌅 모닝 주식 & 경제공부 리포트 · {date_label}</div>
+      <div class="hero-badge">🌅 모닝 주식 & 경제공부 리포트 · {date_label}</div>
       <h1 class="hero-title">{headline_title}</h1>
     </div>
 
+    <!-- 한눈에 보는 4대 핵심 전광판 -->
+    <div class="metrics-grid">
+      {metrics_grid_html}
+    </div>
+
+    <!-- 바쁜 아침 3줄 요약 -->
     <div class="card">
       <h2 class="section-title">⚡ 바쁜 아침을 위한 3줄 핵심 요약</h2>
       <ul class="summary-list">
@@ -483,22 +723,41 @@ def generate_html_report(
       </ul>
     </div>
 
+    <!-- 1. 미국 증시 섹션 -->
     <div class="card">
       <h2 class="section-title">🇺🇸 1. 간밤 미국 증시 심층 해설</h2>
-      <div class="story">
-        {us_paragraphs}
+      <div class="chart-grid">
+        <div class="chart-box">
+          <div class="chart-caption">📊 나스닥 종합 일봉 차트</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/world/day/NAS@IXIC_end.png?t={cache_bust}" alt="나스닥 차트" loading="lazy">
+        </div>
+        <div class="chart-box">
+          <div class="chart-caption">📊 S&P 500 일봉 차트</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/world/day/SPI@SPX_end.png?t={cache_bust}" alt="S&P500 차트" loading="lazy">
+        </div>
       </div>
+      {us_blocks_html}
       {us_lessons_html}
     </div>
 
+    <!-- 2. 국내 증시 섹션 -->
     <div class="card">
       <h2 class="section-title">🇰🇷 2. 국내 증시 시황 & 주도주 해설</h2>
-      <div class="story">
-        {kr_paragraphs}
+      <div class="chart-grid">
+        <div class="chart-box">
+          <div class="chart-caption">📈 코스피(KOSPI) 일봉 캔들 차트</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/candle/day/KOSPI_end.png?t={cache_bust}" alt="코스피 차트" loading="lazy">
+        </div>
+        <div class="chart-box">
+          <div class="chart-caption">💵 원/달러 환율 추이 (3개월)</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/marketindex/month3/FX_USDKRW_end.png?t={cache_bust}" alt="원달러 환율 차트" loading="lazy">
+        </div>
       </div>
+      {kr_blocks_html}
       {kr_lessons_html}
     </div>
 
+    <!-- 3. 오늘 장 체크포인트 -->
     <div class="card">
       <h2 class="section-title">🎯 3. 오늘 장 투자자 체크포인트</h2>
       <ul class="summary-list">
@@ -506,6 +765,7 @@ def generate_html_report(
       </ul>
     </div>
 
+    <!-- 4. 수집 원문 헤드라인 -->
     <div class="card">
       <details>
         <summary>📰 4대 매체(네이버·구글·인베스팅·야후) 수집 원문 헤드라인 보기</summary>
@@ -566,15 +826,17 @@ def send_kakao_memo(access_token: str, text: str, web_url: str) -> None:
 def prepare_report_and_message() -> Tuple[str, str, pathlib.Path]:
     """4개 뉴스 소스 수집 -> AI 리포트 생성 -> HTML 저장 및 카톡 알림 1통 구성을 수행합니다."""
     load_local_env()
-    us_headlines, kr_headlines = collect_all_sources()
+    us_headlines, kr_headlines, news_images = collect_all_sources()
 
     print(
         f"[수집 완료] 미국/글로벌 뉴스 {len(us_headlines)}건, "
-        f"국내 증시 뉴스 {len(kr_headlines)}건 (네이버·구글·인베스팅·야후)"
+        f"국내 증시 뉴스 {len(kr_headlines)}건, 이미지 {len(news_images)}건"
     )
 
     report_data = summarize_with_ai(us_headlines, kr_headlines)
-    html_path = generate_html_report(report_data, us_headlines, kr_headlines)
+    html_path = generate_html_report(
+        report_data, us_headlines, kr_headlines, news_images
+    )
     print(f"[웹 리포트 생성 완료] {html_path}")
 
     kst = datetime.timezone(datetime.timedelta(hours=9))

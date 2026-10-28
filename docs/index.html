@@ -3,130 +3,290 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>🌅 아침 주식 & 경제공부 브리핑 (10/28)</title>
+  <title>🌅 모닝 주식 & 경제공부 리포트 (10/28)</title>
   <style>
     :root {
-      --bg: #f4f6f9;
+      --bg: #f2f4f8;
       --card: #ffffff;
       --text: #191f28;
       --sub: #4e5968;
-      --blue: #3182f6;
-      --blue-bg: #e8f3ff;
-      --amber-bg: #fff8eb;
-      --amber-border: #ffd180;
+      --blue: #2563eb;
+      --red: #e11d48;
+      --red-bg: #fff1f2;
+      --green: #059669;
+      --green-bg: #ecfdf5;
+      --amber-bg: #fffbeb;
+      --amber-border: #fde68a;
       --border: #e5e8eb;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 16px 12px 48px;
+      padding: 14px 12px 56px;
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Noto Sans KR", "Malgun Gothic", sans-serif;
-      line-height: 1.68;
+      font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+      line-height: 1.72;
       font-size: 16px;
+      -webkit-font-smoothing: antialiased;
     }
     .container {
       max-width: 640px;
       margin: 0 auto;
     }
+    /* 상단 히어로 배너 (배경 이미지 + 그라데이션 오버레이) */
     .hero {
-      background: linear-gradient(135deg, #1b3a6b 0%, #2563eb 100%);
+      position: relative;
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 58, 138, 0.84) 100%),
+                  url('https://content-media.investing.com/news/LYNXNPEC0L0PD_M.jpg') center/cover no-repeat;
       color: #fff;
-      padding: 24px 20px;
-      border-radius: 18px;
+      padding: 28px 22px;
+      border-radius: 20px;
       margin-bottom: 16px;
-      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.18);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
     }
-    .hero-date {
-      font-size: 13px;
-      opacity: 0.85;
-      margin-bottom: 6px;
+    .hero-badge {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(4px);
+      padding: 4px 11px;
+      border-radius: 99px;
+      font-size: 12.5px;
+      font-weight: 600;
+      margin-bottom: 10px;
     }
     .hero-title {
       margin: 0;
-      font-size: 21px;
+      font-size: 22px;
       font-weight: 800;
-      line-height: 1.4;
+      line-height: 1.42;
+      word-break: keep-all;
     }
+    /* 4대 핵심 지표 전광판 그리드 */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .metric-card {
+      background: var(--card);
+      border-radius: 15px;
+      padding: 14px 15px;
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+    }
+    .metric-label {
+      font-size: 13px;
+      color: var(--sub);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .metric-value {
+      font-size: 19px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+    .metric-up .metric-value { color: var(--red); }
+    .metric-down .metric-value { color: var(--blue); }
+    .metric-neutral .metric-value { color: #1e293b; }
+    .metric-sub {
+      font-size: 12px;
+      color: var(--sub);
+      margin-top: 2px;
+    }
+    /* 공통 카드 */
     .card {
       background: var(--card);
-      border-radius: 16px;
-      padding: 20px;
-      margin-bottom: 16px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+      border-radius: 18px;
+      padding: 22px 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
       border: 1px solid var(--border);
     }
     .section-title {
-      margin: 0 0 14px;
-      font-size: 18px;
+      margin: 0 0 16px;
+      font-size: 19px;
       font-weight: 800;
       display: flex;
       align-items: center;
-      gap: 6px;
-      border-bottom: 2px solid #f2f4f6;
-      padding-bottom: 10px;
+      gap: 7px;
+      border-bottom: 2px solid #f1f5f9;
+      padding-bottom: 12px;
+      color: #0f172a;
     }
+    /* 차트 이미지 그리드 */
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 480px) {
+      .chart-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .chart-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 10px;
+      text-align: center;
+    }
+    .chart-caption {
+      font-size: 13px;
+      font-weight: 700;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+    .chart-box img {
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      background: #fff;
+      display: block;
+    }
+    /* 3줄 핵심 요약 */
     .summary-list {
       margin: 0;
       padding-left: 20px;
     }
     .summary-list li {
-      margin-bottom: 10px;
-      font-weight: 500;
-    }
-    .story p {
-      margin: 0 0 14px;
-      color: #2b333e;
+      margin-bottom: 12px;
+      font-size: 15.5px;
       word-break: keep-all;
     }
+    .summary-list li:last-child { margin-bottom: 0; }
+    /* 스토리 블록 (소제목 + 형광펜 요약 + 본문) */
+    .story-block {
+      padding: 16px;
+      background: #f8fafc;
+      border-radius: 14px;
+      margin-bottom: 14px;
+      border: 1px solid #eef2f6;
+    }
+    .story-subtitle {
+      margin: 0 0 8px;
+      font-size: 16.5px;
+      font-weight: 800;
+      color: #1e293b;
+      word-break: keep-all;
+    }
+    .story-highlight {
+      background: #fef08a;
+      color: #1e293b;
+      padding: 7px 11px;
+      border-radius: 8px;
+      font-size: 14.5px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      line-height: 1.5;
+      word-break: keep-all;
+    }
+    .story-body {
+      margin: 0;
+      font-size: 15.5px;
+      color: #334155;
+      word-break: keep-all;
+    }
+    .story-body strong {
+      color: #0f172a;
+      background: linear-gradient(transparent 65%, #dbeafe 65%);
+    }
+    /* 경제 공부 카드 */
     .lesson-card {
       background: var(--amber-bg);
-      border: 1px solid var(--amber-border);
-      border-radius: 14px;
-      padding: 16px;
-      margin-top: 16px;
+      border: 1.5px solid var(--amber-border);
+      border-radius: 16px;
+      padding: 18px 16px;
+      margin-top: 18px;
     }
     .lesson-badge {
       display: inline-block;
-      background: #ff9800;
+      background: #d97706;
       color: #fff;
       font-size: 12px;
-      font-weight: 700;
-      padding: 3px 9px;
+      font-weight: 800;
+      padding: 4px 10px;
       border-radius: 99px;
       margin-bottom: 8px;
     }
     .lesson-title {
-      margin: 0 0 8px;
-      font-size: 16.5px;
-      color: #191f28;
+      margin: 0 0 6px;
+      font-size: 17.5px;
+      font-weight: 800;
+      color: #111827;
     }
     .lesson-why {
       margin: 0 0 10px;
-      font-size: 14px;
-      color: var(--sub);
+      font-size: 13.5px;
+      color: #6b7280;
     }
-    .lesson-box p {
-      margin: 0 0 12px;
+    .lesson-easy {
+      background: #ffffff;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 15px;
+      margin-bottom: 10px;
+      border: 1px solid #fde68a;
+      word-break: keep-all;
+    }
+    .flow-diagram {
+      background: #1e293b;
+      color: #f8fafc;
+      padding: 11px 13px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      line-height: 1.5;
+      word-break: keep-all;
+    }
+    .flow-tag {
+      display: inline-block;
+      background: #3b82f6;
+      color: #fff;
+      font-size: 11.5px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      margin-right: 6px;
+    }
+    .impact-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .impact-pos {
+      background: var(--red-bg);
+      border-left: 4px solid var(--red);
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14.5px;
+      word-break: keep-all;
+    }
+    .impact-neg {
+      background: #eff6ff;
+      border-left: 4px solid var(--blue);
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14.5px;
+      word-break: keep-all;
+    }
+    .impact-header {
+      font-weight: 800;
+      margin-bottom: 4px;
       font-size: 15px;
     }
-    .impact-box {
-      background: #ffffff;
-      border-radius: 10px;
-      padding: 12px 14px;
-      font-size: 14.5px;
-      border-left: 4px solid var(--blue);
-    }
+    .impact-pos .impact-header { color: #be123c; }
+    .impact-neg .impact-header { color: #1d4ed8; }
     .raw-list {
       font-size: 13.5px;
       color: var(--sub);
       padding-left: 18px;
       margin: 8px 0 0;
     }
-    .raw-list li {
-      margin-bottom: 5px;
-    }
+    .raw-list li { margin-bottom: 5px; }
     details summary {
       cursor: pointer;
       font-weight: 700;
@@ -137,99 +297,213 @@
 </head>
 <body>
   <div class="container">
+    <!-- 상단 배너 -->
     <div class="hero">
-      <div class="hero-date">🌅 모닝 주식 & 경제공부 리포트 · 2026년 10월 28일 (수)</div>
+      <div class="hero-badge">🌅 모닝 주식 & 경제공부 리포트 · 2026년 10월 28일 (수)</div>
       <h1 class="hero-title">AI 반도체 훈풍에 미·한 증시 동반 강세, 오늘 밤 FOMC 금리 결정 주목</h1>
     </div>
 
+    <!-- 한눈에 보는 4대 핵심 전광판 -->
+    <div class="metrics-grid">
+      
+            <div class="metric-card metric-up">
+              <div class="metric-label">🇺🇸 나스닥 종합</div>
+              <div class="metric-value">+1.18% ▲</div>
+              <div class="metric-sub">이틀 연속 상승 마감</div>
+            </div>
+            
+
+            <div class="metric-card metric-up">
+              <div class="metric-label">🇰🇷 코스피 지수</div>
+              <div class="metric-value">6,012.44</div>
+              <div class="metric-sub">+6.63% ▲ (6000선 탈환)</div>
+            </div>
+            
+
+            <div class="metric-card metric-neutral">
+              <div class="metric-label">💵 달러 인덱스</div>
+              <div class="metric-value">102.73</div>
+              <div class="metric-sub">FOMC 대기 보합권</div>
+            </div>
+            
+
+            <div class="metric-card metric-up">
+              <div class="metric-label">🔥 오늘의 주도주</div>
+              <div class="metric-value">AI · 반도체</div>
+              <div class="metric-sub">SK하이닉스·엔비디아</div>
+            </div>
+            
+    </div>
+
+    <!-- 바쁜 아침 3줄 요약 -->
     <div class="card">
       <h2 class="section-title">⚡ 바쁜 아침을 위한 3줄 핵심 요약</h2>
       <ul class="summary-list">
-        <li>미국 증시는 FOMC 금리 결정을 앞둔 관망세 속에서도 메타의 AI 투자 흥행과 반도체 강세에 힘입어 나스닥(+1.18%) 등 3대 지수가 이틀 연속 상승했습니다.</li>
-<li>국내 코스피는 SK하이닉스의 역대급 실적과 배당 확대 기대감으로 외국인과 기관이 대거 주식을 사들이며 +6.63% 폭등해 6,012.44선을 탈환했습니다.</li>
-<li>오늘 밤 발표될 미국 FOMC 금리 결정 및 파월 의장의 발언, 그리고 이에 따른 달러 인덱스(환율) 흐름이 향후 시장 방향을 결정할 핵심 변수입니다.</li>
+        <li>미국 증시는 <strong>FOMC 금리 결정</strong>을 앞둔 관망세 속에서도 메타의 AI 투자 흥행과 반도체 강세에 힘입어 <strong>나스닥(+1.18%)</strong> 등 3대 지수가 이틀 연속 상승했습니다.</li>
+<li>국내 <strong>코스피</strong>는 SK하이닉스의 역대급 실적과 <strong>배당 확대</strong> 기대감으로 외국인과 기관이 대거 주식을 사들이며 <strong>+6.63% 폭등</strong>해 6,012.44선을 탈환했습니다.</li>
+<li>오늘 밤 발표될 <strong>미국 FOMC 금리 결정</strong> 및 파월 의장의 발언, 그리고 이에 따른 <strong>달러 인덱스(환율)</strong> 흐름이 향후 시장 방향을 결정할 핵심 변수입니다.</li>
       </ul>
     </div>
 
+    <!-- 1. 미국 증시 섹션 -->
     <div class="card">
       <h2 class="section-title">🇺🇸 1. 간밤 미국 증시 심층 해설</h2>
-      <div class="story">
-        <p>간밤 뉴욕 증시는 연방준비제도(Fed·연준)의 기준금리 결정 회의(FOMC) 결과를 하루 앞두고 조심스러운 분위기에서 출발했지만, 결국 AI(인공지능) 산업에 대한 강한 신뢰가 시장을 끌어올리며 3대 지수(다우·S&amp;P500·나스닥) 모두 이틀 연속 상승 마감했습니다. 특히 기술주 중심의 나스닥 지수는 1.18% 오르며 강세를 주도했습니다.</p>
-<p>시장을 끌어올린 일등 공신은 &#x27;빅테크의 AI 투자 지속&#x27;과 &#x27;한국 SK하이닉스의 호실적&#x27;이었습니다. 인스타그램과 페이스북의 모회사인 메타(Meta)가 AI 인프라 확장을 위해 진행한 대규모 자금 조달(증자)에 투자자들의 뭉칫돈이 몰렸고, SK하이닉스가 AI용 고대역폭메모리(HBM) 덕분에 깜짝 실적을 발표하자 &#x27;전 세계 AI 반도체 수요가 여전히 폭발적이다&#x27;라는 확신이 퍼지며 엔비디아, 마이크론 등 미국 반도체 주식들도 일제히 상승했습니다.</p>
-<p>다만 이번 주 마이크로소프트, 알파벳(구글), 애플 등 초대형 기술주들의 실적 발표가 줄줄이 예고되어 있어, 알파벳과 테슬라 등 일부 종목은 단기 급등에 따른 차익실현 매물이 나오며 숨고르기 장세를 보였습니다.</p>
+      <div class="chart-grid">
+        <div class="chart-box">
+          <div class="chart-caption">📊 나스닥 종합 일봉 차트</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/world/day/NAS@IXIC_end.png?t=2026102823" alt="나스닥 차트" loading="lazy">
+        </div>
+        <div class="chart-box">
+          <div class="chart-caption">📊 S&P 500 일봉 차트</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/world/day/SPI@SPX_end.png?t=2026102823" alt="S&P500 차트" loading="lazy">
+        </div>
       </div>
       
+            <div class="story-block">
+              <h3 class="story-subtitle">① 금리 결정 앞둔 긴장감, &#x27;AI 성장 기대감&#x27;이 이겼다</h3>
+              <div class="story-highlight">💡 연준 FOMC 회의를 하루 앞둔 경계감에도 기술주 중심 나스닥 +1.18% 등 3대 지수 모두 상승 마감!</div>
+              <p class="story-body">간밤 뉴욕 증시는 미국 중앙은행(연준)의 기준금리 결정을 앞두고 조심스럽게 출발했습니다. 하지만 <strong>AI(인공지능) 산업이 앞으로도 폭발적으로 성장할 것</strong>이라는 믿음이 시장을 주도하며 다우·S&amp;P500·나스닥 모두 이틀 연속 빨간불(상승)을 켰습니다.</p>
+            </div>
+            
+
+            <div class="story-block">
+              <h3 class="story-subtitle">② 메타의 대규모 AI 투자 &amp; 한국 SK하이닉스가 쏘아 올린 훈풍</h3>
+              <div class="story-highlight">💡 메타 AI 자금 조달에 뭉칫돈이 몰리고, SK하이닉스 호실적이 미국 반도체주까지 끌어올렸습니다.</div>
+              <p class="story-body">인스타그램·페이스북의 모회사인 <strong>메타(Meta)</strong>가 AI 데이터센터 확장을 위해 진행한 자금 조달(증자)에 큰손 투자자들이 대거 몰렸습니다. 여기에 한국 <strong>SK하이닉스</strong>가 AI용 메모리(HBM) 덕분에 역대급 실적을 발표하자, <strong>엔비디아·마이크론</strong> 등 미국 AI 반도체 주식들도 &#x27;칩 수요가 여전히 뜨겁다&#x27;는 확신 속에 동반 강세를 보였습니다.</p>
+            </div>
+            
+
+            <div class="story-block">
+              <h3 class="story-subtitle">③ 빅테크 실적 발표 주간 돌입, 일부 종목은 숨고르기</h3>
+              <div class="story-highlight">💡 마이크로소프트·알파벳·애플 실적 대기 속 테슬라·알파벳은 단기 저항선 부근 보합세</div>
+              <p class="story-body">이번 주는 미국 초대형 기술주(빅테크)들의 성적표가 연달아 나오는 주간입니다. 그동안 많이 올랐던 <strong>알파벳(구글)</strong>과 <strong>테슬라</strong> 등은 실적을 직접 확인하고 가자는 심리에 잠시 숨을 고르는 모습을 보였습니다.</p>
+            </div>
+            
+      
             <div class="lesson-card">
-              <div class="lesson-badge">📚 오늘의 경제 공부</div>
-              <h4 class="lesson-title">Q. FOMC(연방공개시장위원회)와 기준금리 결정이(가) 뭔가요?</h4>
-              <p class="lesson-why">💬 <strong>뉴스 맥락:</strong> 뉴스에서 &#x27;연준 FOMC 금리 결정을 앞두고 관망세&#x27;라는 표현이 매일 등장하고 있습니다.</p>
-              <div class="lesson-box">
-                <p><strong>💡 쉬운 개념 설명</strong><br>FOMC는 미국 중앙은행(연준·Fed)이 약 6주마다 모여 &#x27;미국의 기준금리(돈의 값)&#x27;를 올릴지, 내릴지, 그대로 둘지(동결) 결정하는 세계에서 가장 중요한 경제 회의입니다.</p>
-                <div class="impact-box">
-                  <strong>📈 주가에는 어떤 영향을 주나요?</strong><br>• 금리를 내리면(인하): 은행 대출 이자가 싸져서 기업들이 돈을 빌려 AI·공장 등에 투자하기 쉬워집니다. 또한 은행 예금 이자가 낮아지니 투자자들이 예금을 빼서 주식시장으로 돈을 옮겨 주가(특히 나스닥 성장주·기술주)가 오르는 경향이 있습니다.<br>• 금리를 올리면(인상): 물가(인플레이션)를 잡기 위해 이자를 높이는 것입니다. 기업들의 이자 부담이 커져 이익이 줄어들고, 안전한 은행 예금만 넣어도 높은 이자를 주니 주식에서 돈이 빠져나가 주가에는 하락 압력으로 작용합니다.<br>• 금리를 동결하면: 현재 금리를 유지하는 것으로, 이때는 회의 직후 연준 의장(제롬 파월)이 &#x27;앞으로 금리를 내릴 생각이 있는지&#x27; 말하는 뉘앙스에 따라 주가가 출렁입니다.
+              <div class="lesson-badge">📚 주린이 탈출 · 오늘의 경제 공부</div>
+              <h4 class="lesson-title">Q. FOMC(연방공개시장위원회)와 기준금리이(가) 뭔가요?</h4>
+              <p class="lesson-why">📰 뉴스 헤드라인: &#x27;뉴욕증시, 연준 FOMC 금리 결정 앞두고 상승 마감&#x27;</p>
+              <div class="lesson-easy"><strong>FOMC</strong>는 미국 중앙은행(연준·Fed)이 약 6주마다 모여 <strong>&#x27;미국의 기준금리(돈의 이자율)&#x27;</strong>를 올릴지, 내릴지, 그대로 둘지(동결) 결정하는 세계 경제의 최대 이벤트입니다.</div>
+              <div class="flow-diagram"><span class="flow-tag">🧭 한 줄 공식</span> 금리 인하 ↓ ➔ 대출이자 감소·예금 매력 하락 ➔ 기업 투자 &amp; 주식 자금 유입 ➔ 나스닥·성장주 상승 📈</div>
+              <div class="impact-grid">
+                <div class="impact-pos">
+                  <div class="impact-header">📈 주가에 긍정적일 때 (호재 원리)</div>
+                  <div><strong>금리를 내릴 때 (인하 · 주가 호재):</strong> 은행 이자가 싸지니까 기업들이 돈을 빌려 AI나 공장에 투자하기 쉬워집니다. 또한 은행 예금 이자가 낮아지니 사람들이 예금을 빼서 주식을 사게 되어 주가(특히 나스닥 기술주)가 오릅니다.</div>
+                </div>
+                <div class="impact-neg">
+                  <div class="impact-header">📉 주가에 부담될 때 (주의 원리)</div>
+                  <div><strong>금리를 올릴 때 (인상 · 주가 부담):</strong> 물가 상승(인플레이션)을 잡으려고 이자를 높이는 것입니다. 기업의 대출 이자 부담이 커져 이익이 줄고, 위험한 주식 대신 안전한 은행 예금·채권으로 돈이 빠져나가 주가가 조정받기 쉽습니다.</div>
                 </div>
               </div>
             </div>
             
 
             <div class="lesson-card">
-              <div class="lesson-badge">📚 오늘의 경제 공부</div>
-              <h4 class="lesson-title">Q. 증자(유상증자)와 빅테크 자금 조달이(가) 뭔가요?</h4>
-              <p class="lesson-why">💬 <strong>뉴스 맥락:</strong> &#x27;AI 총력전 메타 증자에 몰린 뭉칫돈&#x27;이라는 뉴스가 미국 증시 상승의 배경이 되었습니다.</p>
-              <div class="lesson-box">
-                <p><strong>💡 쉬운 개념 설명</strong><br>기업이 큰 사업(예: 수조 원이 드는 AI 데이터센터 건설)을 하려면 막대한 현금이 필요합니다. 이때 은행에서 돈을 빌리는 대신 &#x27;새로운 주식을 발행해 투자자들에게 팔아서 자금을 모으는 것&#x27;을 유상증자라고 합니다.</p>
-                <div class="impact-box">
-                  <strong>📈 주가에는 어떤 영향을 주나요?</strong><br>• 부정적일 때(악재): 회사가 적자를 메우거나 빚을 갚으려고 증자를 하면, 기존 주주들의 지분 가치가 묽어져서(희석) 주가가 떨어집니다.<br>• 긍정적일 때(호재): 이번 메타처럼 &#x27;AI 시장에서 압도적 1등을 하기 위한 미래 투자용&#x27;으로 자금을 모으고, 거기에 큰손 투자자들이 서로 사겠다고 뭉칫돈이 몰리면 오히려 기업의 성장성을 인정받아 주가에 강한 호재가 됩니다.
+              <div class="lesson-badge">📚 주린이 탈출 · 오늘의 경제 공부</div>
+              <h4 class="lesson-title">Q. 증자(유상증자)와 기업의 자금 조달이(가) 뭔가요?</h4>
+              <p class="lesson-why">📰 뉴스 헤드라인: &#x27;[뉴욕증시] AI 총력전 메타 증자에 몰린 뭉칫돈…강세 마감&#x27;</p>
+              <div class="lesson-easy">기업이 수조 원이 드는 대규모 사업(예: AI 데이터센터 건설)을 할 때, 은행 대출 대신 <strong>&#x27;새 주식을 찍어 투자자들에게 팔아 자금을 모으는 것&#x27;</strong>을 <strong>유상증자</strong>라고 합니다.</div>
+              <div class="flow-diagram"><span class="flow-tag">🧭 한 줄 공식</span> AI 미래 투자용 증자 ➔ 기관 투자자 뭉칫돈 참여 ➔ AI 성장성 입증 ➔ 주가 강세 🚀</div>
+              <div class="impact-grid">
+                <div class="impact-pos">
+                  <div class="impact-header">📈 주가에 긍정적일 때 (호재 원리)</div>
+                  <div><strong>호재인 증자 (이번 메타 사례):</strong> 회사가 &#x27;AI 시장 1등을 굳히기 위한 설비 투자용&#x27;으로 자금을 모으고, 여기에 전 세계 큰손들이 서로 사겠다고 돈이 몰리면 오히려 성장성을 인정받아 주가가 오릅니다.</div>
+                </div>
+                <div class="impact-neg">
+                  <div class="impact-header">📉 주가에 부담될 때 (주의 원리)</div>
+                  <div><strong>악재인 증자 (주의할 사례):</strong> 반대로 회사가 장사가 안돼서 빚을 갚거나 적자를 메우려고 주식을 새로 찍어내면, 기존 주주들의 주식 가치가 묽어져서(지분 희석) 주가가 하락합니다.</div>
                 </div>
               </div>
             </div>
             
     </div>
 
+    <!-- 2. 국내 증시 섹션 -->
     <div class="card">
       <h2 class="section-title">🇰🇷 2. 국내 증시 시황 & 주도주 해설</h2>
-      <div class="story">
-        <p>국내 증시는 그야말로 &#x27;반도체의 날&#x27;이었습니다. 코스피 지수는 전 거래일 대비 무려 +6.63% 급등하며 6,012.44로 마감해, 10거래일 만에 다시 6,000선을 탈환했습니다.</p>
-<p>상승의 핵심 동력은 SK하이닉스와 삼성전자, 이른바 &#x27;반도체 투톱&#x27;이었습니다. SK하이닉스가 시장 예상치를 뛰어넘는 역대급 실적을 발표하고 주주들에게 돌려주는 배당금 확대(&#x27;주당 2만원&#x27; 기대감) 소식까지 전해지자 개인 투자자뿐 아니라 외국인과 기관 투자자까지 대거 매수에 나섰습니다.</p>
-<p>다만 지수가 하루 만에 6% 넘게 급등하자, 단기 과열을 경계하며 주가 하락에 베팅하는 공매도 거래대금도 하루 동안 약 1조 4,975억 원 늘어나며 치열한 수급 공방이 함께 나타났습니다.</p>
+      <div class="chart-grid">
+        <div class="chart-box">
+          <div class="chart-caption">📈 코스피(KOSPI) 일봉 캔들 차트</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/candle/day/KOSPI_end.png?t=2026102823" alt="코스피 차트" loading="lazy">
+        </div>
+        <div class="chart-box">
+          <div class="chart-caption">💵 원/달러 환율 추이 (3개월)</div>
+          <img src="https://ssl.pstatic.net/imgfinance/chart/mobile/marketindex/month3/FX_USDKRW_end.png?t=2026102823" alt="원달러 환율 차트" loading="lazy">
+        </div>
       </div>
       
+            <div class="story-block">
+              <h3 class="story-subtitle">① 코스피 +6.63% 대폭등, 10거래일 만에 6,000선 탈환!</h3>
+              <div class="story-highlight">💡 외국인·기관 쌍끌이 매수세 유입에 코스피가 하루 만에 6% 넘게 급등하며 6,012.44로 마감했습니다.</div>
+              <p class="story-body">최근 글로벌 경기 우려로 주춤했던 국내 증시가 단숨에 분위기를 반전시켰습니다. 글로벌 AI 투자 심리가 살아나면서 국내 증시 큰손인 <strong>외국인과 기관 투자자</strong>가 동시에 주식을 대거 사들이는 <strong>쌍끌이 순매수</strong>로 지수를 끌어올렸습니다.</p>
+            </div>
+            
+
+            <div class="story-block">
+              <h3 class="story-subtitle">② &#x27;삼전닉스&#x27;의 귀환: 역대급 실적 + 주당 2만원 배당 기대감</h3>
+              <div class="story-highlight">💡 SK하이닉스 영업이익률 호조 및 배당 확대 소식에 삼성전자까지 반도체 투톱이 시장을 견인했습니다.</div>
+              <p class="story-body"><strong>SK하이닉스</strong>가 AI 반도체 핵심 부품인 HBM 시장 장악력을 바탕으로 깜짝 실적을 내놓았고, 주주들에게 주당 2만원 수준의 통 큰 <strong>배당</strong>을 줄 것이라는 기대감까지 터져 나왔습니다. 이에 <strong>삼성전자</strong>까지 동반 급등하며 코스피 상승분의 대부분을 이끌었습니다.</p>
+            </div>
+            
+
+            <div class="story-block">
+              <h3 class="story-subtitle">③ 급등 뒤편의 수급 공방: 공매도 1.5조 증가</h3>
+              <div class="story-highlight">💡 지수가 하루에 6% 급등하자 단기 과열을 경계한 공매도 거래대금도 1조 4,975억 원 늘었습니다.</div>
+              <p class="story-body">주가가 단기간에 가파르게 오르자 &#x27;잠시 숨고르기를 하지 않을까?&#x27;라고 판단한 일부 외국계·기관 자금의 <strong>공매도</strong>도 함께 늘어났습니다. 따라서 오늘 장에서는 추가 외국인 매수세가 이 공매도 물량까지 이겨내는지가 중요합니다.</p>
+            </div>
+            
+      
             <div class="lesson-card">
-              <div class="lesson-badge">📚 오늘의 경제 공부</div>
-              <h4 class="lesson-title">Q. 배당(Dividend)과 주주환원이(가) 뭔가요?</h4>
-              <p class="lesson-why">💬 <strong>뉴스 맥락:</strong> SK하이닉스의 호실적과 함께 &#x27;주당 2만원 배당 기대감&#x27;이 주가 급등의 기폭제가 되었습니다.</p>
-              <div class="lesson-box">
-                <p><strong>💡 쉬운 개념 설명</strong><br>배당이란 기업이 1년 동안 장사를 잘해서 번 순이익의 일부를 주식을 가진 주주들에게 현금으로 나눠주는 &#x27;보너스&#x27;입니다.</p>
-                <div class="impact-box">
-                  <strong>📈 주가에는 어떤 영향을 주나요?</strong><br>• 배당을 늘리면: 주식을 가지고만 있어도 매년 통장에 따박따박 들어오는 현금이 많아지므로, 연기금이나 외국인 같은 장기 투자자들이 그 주식을 사려고 몰려들어 주가가 상승합니다.<br>• 배당을 줄이거나 안 주면: 회사가 이익을 주주와 나누지 않는다고 판단해 투자 매력이 떨어질 수 있습니다(단, 성장 초기 기업은 배당 대신 전액 재투자를 하기도 합니다).
+              <div class="lesson-badge">📚 주린이 탈출 · 오늘의 경제 공부</div>
+              <h4 class="lesson-title">Q. 배당(Dividend)과 주주환원 효과이(가) 뭔가요?</h4>
+              <p class="lesson-why">📰 뉴스 헤드라인: &#x27;주당 2만원 쏩니다…하이닉스 개미들 환호&#x27;</p>
+              <div class="lesson-easy"><strong>배당</strong>이란 기업이 장사를 잘해서 남긴 이익의 일부를 주식을 보유한 주주들에게 <strong>현금으로 나눠주는 보너스</strong>입니다.</div>
+              <div class="flow-diagram"><span class="flow-tag">🧭 한 줄 공식</span> 기업 역대급 실적 ➔ 배당금 대폭 확대 ➔ 장기 투자자 매수 유입 ➔ 기업가치·주가 상승 📈</div>
+              <div class="impact-grid">
+                <div class="impact-pos">
+                  <div class="impact-header">📈 주가에 긍정적일 때 (호재 원리)</div>
+                  <div><strong>배당을 늘릴 때 (주가 호재):</strong> 주식을 갖고만 있어도 매년 통장에 들어오는 현금이 늘어나므로, 연기금·외국인 같은 장기 투자자들이 주식을 사서 모으게 되어 주가가 탄탄하게 오릅니다.</div>
+                </div>
+                <div class="impact-neg">
+                  <div class="impact-header">📉 주가에 부담될 때 (주의 원리)</div>
+                  <div><strong>배당을 줄이거나 안 줄 때:</strong> 회사가 이익을 주주와 나누는 데 인색하다고 평가받아 주가가 제 가치를 못 받는(코리아 디스카운트) 원인이 되기도 합니다.</div>
                 </div>
               </div>
             </div>
             
 
             <div class="lesson-card">
-              <div class="lesson-badge">📚 오늘의 경제 공부</div>
-              <h4 class="lesson-title">Q. 공매도(Short Selling)와 달러 인덱스(Dollar Index)이(가) 뭔가요?</h4>
-              <p class="lesson-why">💬 <strong>뉴스 맥락:</strong> &#x27;코스피 6% 급등 속 공매도 1.5조 증가&#x27;, &#x27;달러 인덱스 102.7선 테스트&#x27;가 오늘의 주요 체크포인트로 꼽혔습니다.</p>
-              <div class="lesson-box">
-                <p><strong>💡 쉬운 개념 설명</strong><br>① 공매도는 주식이 없는 상태에서 주식을 빌려서 먼저 판 뒤, 나중에 주가가 떨어지면 싸게 사서 갚아 차익을 남기는 기법입니다(즉, 주가가 내려야 돈을 법니다).<br>② 달러 인덱스는 유로·엔 등 세계 주요 6개 통화 대비 &#x27;미국 달러의 힘(가치)&#x27;을 숫자로 나타낸 지표입니다(100보다 높을수록 달러 강세).</p>
-                <div class="impact-box">
-                  <strong>📈 주가에는 어떤 영향을 주나요?</strong><br>• 주가가 하루에 너무 많이 오르면 &#x27;조만간 조금 조정을 받지 않을까?&#x27;라고 생각하는 기관·외국인의 공매도가 늘어날 수 있습니다. 반대로 주가가 계속 올라버리면 공매도 세력이 손실을 막기 위해 울며 겨자 먹기로 주식을 다시 사야 해서(숏커버링) 주가가 더 폭등하기도 합니다.<br>• 달러 인덱스가 오르면(달러 강세 = 원화 약세·환율 상승): 외국인 투자자 입장에서는 한국 주식을 팔아서 달러로 바꿀 때 손해(환차손)를 볼 수 있어 한국 주식을 팔고 나가기 쉽습니다.<br>• 달러 인덱스가 내리면(달러 약세 = 원화 강세·환율 하락): 외국인 자금이 한국 증시로 들어오기 좋은 환경이 되어 코스피에 호재로 작용합니다.
+              <div class="lesson-badge">📚 주린이 탈출 · 오늘의 경제 공부</div>
+              <h4 class="lesson-title">Q. 공매도(Short Selling)와 달러 인덱스(환율)이(가) 뭔가요?</h4>
+              <p class="lesson-why">📰 뉴스 헤드라인: &#x27;코스피 급등 속 공매도 1.5조 증가&#x27; / &#x27;달러 인덱스 102.735 저항선 테스트&#x27;</p>
+              <div class="lesson-easy">① <strong>공매도</strong>는 주가가 내릴 것에 베팅해 주식을 빌려서 먼저 판 뒤, 나중에 싸게 사서 갚는 기법입니다.<br>② <strong>달러 인덱스</strong>는 세계 주요 통화 대비 <strong>미국 달러의 힘(가치)</strong>을 나타냅니다.</div>
+              <div class="flow-diagram"><span class="flow-tag">🧭 한 줄 공식</span> 달러 인덱스 하락(원화 강세) ➔ 외국인 환차익 기대 ➔ 한국 주식 순매수 유입 ➔ 코스피 상승 📈</div>
+              <div class="impact-grid">
+                <div class="impact-pos">
+                  <div class="impact-header">📈 주가에 긍정적일 때 (호재 원리)</div>
+                  <div><strong>한국 증시에 유리할 때:</strong> 달러 인덱스가 안정되거나 내려가면(원화 강세·환율 하락), 외국인이 한국 주식을 사서 나중에 달러로 바꿀 때 환율 이득까지 볼 수 있어 외국인 매수가 강하게 들어옵니다. 또한 주가가 계속 올라 공매도 세력이 항복하고 주식을 되사면(<strong>숏커버링</strong>) 주가가 한 번 더 폭등합니다.</div>
+                </div>
+                <div class="impact-neg">
+                  <div class="impact-header">📉 주가에 부담될 때 (주의 원리)</div>
+                  <div><strong>한국 증시에 불리할 때:</strong> 달러 인덱스가 급등하면(달러 강세·원/달러 환율 상승), 외국인은 가만히 있어도 환율 손해(환차손)를 보게 되어 한국 주식을 팔고 달러로 바꿔 나가려는 경향이 커집니다.</div>
                 </div>
               </div>
             </div>
             
     </div>
 
+    <!-- 3. 오늘 장 체크포인트 -->
     <div class="card">
       <h2 class="section-title">🎯 3. 오늘 장 투자자 체크포인트</h2>
       <ul class="summary-list">
-        <li>미 연준(FOMC) 금리 결정 결과 및 파월 의장의 향후 금리 인하 속도 관련 발언 확인</li>
-<li>달러 인덱스(102.7선)와 원/달러 환율이 안정세를 유지하며 외국인 매수세가 이어지는지 체크</li>
-<li>이번 주 발표되는 미국 빅테크(마이크로소프트·알파벳·메타 등)의 실제 AI 설비투자(CapEx) 규모 확인</li>
+        <li><strong>미 연준(FOMC) 금리 결정 및 파월 의장 기자회견:</strong> 향후 금리 인하 속도에 대해 긍정적(비둘기파) 신호를 주는지 확인</li>
+<li><strong>달러 인덱스(102.7선)와 원/달러 환율:</strong> 환율이 안정세를 유지하며 외국인의 코스피 순매수가 이어지는지 체크</li>
+<li><strong>미국 빅테크 실적 발표:</strong> 마이크로소프트·알파벳 등이 앞으로도 AI 반도체 구매(설비투자)를 계속 늘리겠다고 발표하는지 확인</li>
       </ul>
     </div>
 
+    <!-- 4. 수집 원문 헤드라인 -->
     <div class="card">
       <details>
         <summary>📰 4대 매체(네이버·구글·인베스팅·야후) 수집 원문 헤드라인 보기</summary>
@@ -241,9 +515,9 @@
 <li>[네이버증권] &quot;천하의 테슬라가 어쩌다&quot;…&#x27;비중 줄여라&#x27; 경고 나온 이유[클릭 e종목]</li>
 <li>[구글뉴스] [뉴욕증시] &#x27;AI 총력전&#x27; 메타 증자에 몰린 뭉칫돈…강세 마감</li>
 <li>[구글뉴스] 뉴욕증시, 연준 금리 결정 앞두고 상승 마감…나스닥 1.18%↑</li>
-<li>[구글뉴스] [1028마감체크] 코스피, 앤트로픽·하이닉스 &#x27;훈풍&#x27;에 급등... 열흘 만에 6000선 회복</li>
+<li>[구글뉴스] [뉴욕마감]나스닥 1.18%↑…AI 반도체주 반등에 이틀 연속 상승</li>
 <li>[구글뉴스] [뉴욕 증시] AI 투자심리 회복에 이틀째↑… 3대 지수 일제히 상승 마감</li>
-<li>[구글뉴스] [뉴욕마감]나스닥 1.18%↑…AI 반도체주 반등에 이틀 연속 상승</li></ul>
+<li>[구글뉴스] [1028마감체크] 코스피, 앤트로픽·하이닉스 &#x27;훈풍&#x27;에 급등... 열흘 만에 6000선 회복</li></ul>
         <h4 style="margin:14px 0 4px;">🇰🇷 국내 증시</h4>
         <ul class="raw-list"><li>[네이버증권] “나 정도면 주식 좀 하지” 자신만만한 2030…정작 금융지식 까보니 ‘꼴찌’였다</li>
 <li>[네이버증권] &#x27;불법 공매도 혐의&#x27; 홍콩 HSBC 무죄 확정…法, 매매 체결에 주목</li>
@@ -253,8 +527,8 @@
 <li>[구글뉴스] [마감시황] 10/28 코스피 +6.63% 폭등, 6,012.44 마감</li>
 <li>[구글뉴스] SK하이닉스 호실적에 코스피 6.63% 급등... 6000선 회복 [마감시황]</li>
 <li>[구글뉴스] [마감시황] 코스피 6000선 탈환…&#x27;삼전닉스&#x27; 급등에 6.63% 상승</li>
-<li>[구글뉴스] [마감시황] 코스피 6% 급등, 6000선 회복…공매도는 1조4975억원 늘어</li>
-<li>[구글뉴스] [마감시황] 코스피, SK하이닉스 역대급 실적에 6%대 급등…10거래일 만에 6000선 회복</li></ul>
+<li>[구글뉴스] [마감시황] 코스피, SK하이닉스 역대급 실적에 6%대 급등…10거래일 만에 6000선 회복</li>
+<li>[구글뉴스] [마감시황] 코스피 6% 급등, 6000선 회복…공매도는 1조4975억원 늘어</li></ul>
       </details>
     </div>
   </div>
