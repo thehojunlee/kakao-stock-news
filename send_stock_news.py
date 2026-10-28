@@ -14,6 +14,21 @@ from typing import Dict, List, Tuple
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 PROMPT_FILE = BASE_DIR / "ai_prompt.txt"
+EXTERNAL_ENV_FILE = pathlib.Path(r"D:\FinanceData\kakao_stock_news.env")
+
+
+def load_local_env() -> None:
+    """볼트 외부(D:\\FinanceData\\kakao_stock_news.env)에 저장된 환경변수가 있으면 불러옵니다."""
+    if not EXTERNAL_ENV_FILE.exists():
+        return
+    for line in EXTERNAL_ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip()
+        if k and v and k not in os.environ:
+            os.environ[k] = v
 
 KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token"
 KAKAO_MEMO_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
@@ -308,6 +323,7 @@ def send_kakao_memo(access_token: str, text: str, web_url: str) -> None:
 
 def prepare_messages() -> List[Tuple[str, str]]:
     """4개 뉴스 소스에서 기사를 수집하고 AI 요약(또는 헤드라인 정리) 후 발송할 메시지 리스트를 반환합니다."""
+    load_local_env()
     us_headlines, kr_headlines = collect_all_sources()
 
     print(
@@ -345,6 +361,8 @@ def prepare_messages() -> List[Tuple[str, str]]:
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+
+    load_local_env()
 
     parser = argparse.ArgumentParser(
         description="4대 증시 뉴스 소스(네이버·구글·인베스팅·야후)를 수집 및 AI 요약하여 카카오톡으로 발송합니다."
