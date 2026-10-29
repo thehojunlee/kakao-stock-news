@@ -2,9 +2,8 @@ name: Daily Stock News to KakaoTalk
 
 on:
   schedule:
-    %23 UTC 기준 23:00 = 한국 시간(KST) 다음날 오전 08:00 (매일 아침 8시 정각 실행)
     - cron: "0 23 * * *"
-  workflow_dispatch: %23 GitHub 웹 화면에서 [Run workflow] 버튼으로 즉시 수동 테스트 가능
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,16 +21,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: 1. Generate today's report (docs/index.html)
+      - name: Generate Report and Send KakaoTalk
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+          KAKAO_FRIEND_UUIDS: ${{ secrets.KAKAO_FRIEND_UUIDS }}
+          REPORT_WEB_URL: "https://thehojunlee.github.io/kakao-stock-news/"
         run: |
-          python send_stock_news.py --dry-run
-
-      - name: 2. Publish updated report to GitHub Pages
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html
-          git diff --staged --quiet || (git commit -m "chore: update daily morning stock report" 
+          python send_stock_news.py
