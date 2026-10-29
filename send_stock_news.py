@@ -5,7 +5,9 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1198,6 +1200,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--skip-generate",
+        "--send-only",
+        dest="skip_generate",
         action="store_true",
         help="이미 생성된 docs/latest_kakao_msg.txt를 읽어 카카오톡만 발송합니다.",
     )
@@ -1222,6 +1226,20 @@ def main() -> None:
     if args.dry_run:
         print("[Dry-Run 완료] --dry-run 옵션이 켜져 있어 카카오톡 전송은 생략했습니다.")
         return
+
+    if os.environ.get("GITHUB_ACTIONS") == "true" and not args.skip_generate:
+        try:
+            subprocess.run(["git", "config", "user.name", "github-actions[bot]"], cwd=str(BASE_DIR), check=False)
+            subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], cwd=str(BASE_DIR), check=False)
+            subprocess.run(["git", "add", "docs/index.html"], cwd=str(BASE_DIR), check=False)
+            diff_res = subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=str(BASE_DIR), check=False)
+            if diff_res.returncode != 0:
+                subprocess.run(["git", "commit", "-m", "chore: update daily morning stock report"], cwd=str(BASE_DIR), check=False)
+                subprocess.run(["git", "push"], cwd=str(BASE_DIR), check=False)
+                print("[GitHub Pages 배포] 업데이트된 리포트를 저장소에 반영했습니다. (15초 대기)")
+                time.sleep(15)
+        except Exception as e:
+            print(f"[경고] GitHub Pages 자동 커밋 중 오류 무시: {e}", file=sys.stderr)
 
     rest_api_key = os.environ.get("KAKAO_REST_API_KEY", "").strip()
     refresh_token = os.environ.get("KAKAO_REFRESH_TOKEN", "").strip()
