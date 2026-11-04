@@ -1184,6 +1184,31 @@ def prepare_report_and_message() -> Tuple[str, str, pathlib.Path]:
     return kakao_msg, REPORT_WEB_URL, html_path
 
 
+def is_already_sent_today(msg_cache: pathlib.Path, today_str: str) -> bool:
+    """오늘자(MM/DD) 브리핑이 이미 생성·발송되었는지 확인합니다."""
+    if not msg_cache.exists():
+        return False
+    try:
+        content = msg_cache.read_text(encoding="utf-8").strip()
+        return f"({today_str})" in content.splitlines()[0] if content else False
+    except Exception:
+        return False
+
+
+def wait_until_kst(hour: int, minute: int, second: int = 0) -> None:
+    """한국 시간(KST) 기준 목표 시각이 될 때까지 정밀 대기합니다."""
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+    now_kst = datetime.datetime.now(kst)
+    target = now_kst.replace(hour=hour, minute=minute, second=second, microsecond=0)
+    wait_sec = (target - now_kst).total_seconds()
+    if 0 < wait_sec <= 7200:
+        print(
+            f"[정각 타이머] 현재 {now_kst.strftime('%H:%M:%S')} KST -> "
+            f"목표 {target.strftime('%H:%M:%S')} KST까지 {int(wait_sec)}초 대기합니다..."
+        )
+        time.sleep(wait_sec)
+
+
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -1207,7 +1232,26 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+    today_str = datetime.datetime.now(kst).strftime("%m/%d")
     msg_cache = DOCS_DIR / "latest_kakao_msg.txt"
+    is_scheduled_ci = (
+        os.environ.get("GITHUB_ACTIONS") == "true"
+        and os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+    )
+
+    if is_scheduled_ci:
+        subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=str(BASE_DIR), check=False)
+        if is_already_sent_today(msg_cache, today_str):
+            print(f"[중복 방지] 오늘자({today_str}) 브리핑은 이미 발송 완료되어 종료합니다.")
+            return
+        # 08:28:00 KST까지 대기 후 최신 아침 뉴스를 수집하고 리포트를 생성합니다.
+        wait_until_kst(8, 28, 0)
+        subprocess.run(["git", "pull", "--rebase", "origin", "main"], cwd=str(BASE_DIR), check=False)
+        if is_already_sent_today(msg_cache, today_str):
+            print(f"[중복 방지] 오늘자({today_str}) 브리핑은 다른 스케줄러에서 이미 발송 완료되었습니다.")
+            return
+
     if args.skip_generate and msg_cache.exists():
         kakao_msg = msg_cache.read_text(encoding="utf-8").strip()
         report_url = REPORT_WEB_URL
@@ -1231,15 +1275,19 @@ def main() -> None:
         try:
             subprocess.run(["git", "config", "user.name", "github-actions[bot]"], cwd=str(BASE_DIR), check=False)
             subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], cwd=str(BASE_DIR), check=False)
-            subprocess.run(["git", "add", "docs/index.html"], cwd=str(BASE_DIR), check=False)
+            subprocess.run(["git", "add", "docs/index.html", "docs/latest_kakao_msg.txt"], cwd=str(BASE_DIR), check=False)
             diff_res = subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=str(BASE_DIR), check=False)
             if diff_res.returncode != 0:
-                subprocess.run(["git", "commit", "-m", "chore: update daily morning stock report"], cwd=str(BASE_DIR), check=False)
-                subprocess.run(["git", "push"], cwd=str(BASE_DIR), check=False)
+                subprocess.run(["git", "commit", "-m", f"chore: update daily morning stock report ({today_str})"], cwd=str(BASE_DIR), check=False)
+                subprocess.run(["git", "push", "origin", "main"], cwd=str(BASE_DIR), check=False)
                 print("[GitHub Pages 배포] 업데이트된 리포트를 저장소에 반영했습니다. (15초 대기)")
                 time.sleep(15)
         except Exception as e:
             print(f"[경고] GitHub Pages 자동 커밋 중 오류 무시: {e}", file=sys.stderr)
+
+    if is_scheduled_ci:
+        # 정확히 08:30:00 KST 정각에 카카오톡이 발송되도록 맞춥니다.
+        wait_until_kst(8, 30, 0)
 
     rest_api_key = os.environ.get("KAKAO_REST_API_KEY", "").strip()
     refresh_token = os.environ.get("KAKAO_REFRESH_TOKEN", "").strip()
