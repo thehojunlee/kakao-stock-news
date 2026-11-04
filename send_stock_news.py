@@ -96,6 +96,45 @@ def format_rich_text(text: str) -> str:
     return bolded.replace("\n", "<br>")
 
 
+TRUSTED_MAJOR_PRESS = (
+    # 국내 주요 경제지
+    "한국경제", "한경", "한국경제TV",
+    "매일경제", "매경", "MBN",
+    "서울경제", "머니투데이", "이데일리", "아시아경제",
+    "헤럴드경제", "파이낸셜뉴스", "조선비즈", "비즈니스워치", "더벨",
+    "디지털타임스", "전자신문", "지디넷", "ZDNet",
+    # 국내 주요 통신사
+    "연합뉴스", "연합인포맥스", "뉴스1", "뉴시스",
+    # 국내 주요 종합일간지 및 방송사
+    "조선일보", "중앙일보", "동아일보", "한겨레", "경향신문",
+    "한국일보", "국민일보", "서울신문", "문화일보", "세계일보",
+    "SBS", "KBS", "MBC", "JTBC", "YTN", "TV조선", "채널A",
+    # 글로벌 주요 금융·경제 매체
+    "Reuters", "로이터", "Bloomberg", "블룸버그", "CNBC",
+    "Wall Street Journal", "WSJ", "Yahoo", "MarketWatch",
+    "Financial Times", "Associated Press", "Barron", "Investing", "인베스팅",
+    "CoinDesk", "코인데스크", "Forbes", "포브스",
+)
+
+
+def is_trusted_press(press_name: str) -> bool:
+    """언론사명이 검증된 주요 메이저 언론사/통신사 목록에 해당하는지 확인합니다."""
+    if not press_name:
+        return False
+    p_low = press_name.lower()
+    return any(tp.lower() in p_low for tp in TRUSTED_MAJOR_PRESS)
+
+
+def extract_press_name(raw_title: str, source_tag: str = "") -> str:
+    """RSS 항목에서 언론사명을 추출합니다."""
+    if source_tag and source_tag.strip():
+        return html.unescape(source_tag).strip()
+    title = html.unescape(raw_title).strip()
+    if " - " in title:
+        return title.rsplit(" - ", 1)[1].strip()
+    return ""
+
+
 def clean_headline(raw_title: str, max_len: int = 92) -> str:
     """언론사 접미사 제거 및 깔끔한 한 줄 제목으로 정리합니다."""
     title = html.unescape(raw_title).strip()
@@ -108,9 +147,9 @@ def clean_headline(raw_title: str, max_len: int = 92) -> str:
 
 
 def fetch_rss_items(
-    rss_url: str, source_label: str, limit: int = 5
+    rss_url: str, source_label: str, limit: int = 5, filter_major_only: bool = True
 ) -> Tuple[List[Dict[str, str]], List[str]]:
-    """지정된 RSS URL에서 최신 뉴스 아이템({source, title, url}) 목록과 썸네일 이미지 URL을 가져옵니다."""
+    """지정된 RSS URL에서 검증된 주요 언론사의 최신 뉴스 아이템({source, title, url}) 목록과 썸네일 이미지 URL을 가져옵니다."""
     try:
         req = urllib.request.Request(rss_url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -123,6 +162,12 @@ def fetch_rss_items(
         seen = set()
         for item in root.findall("./channel/item"):
             raw_title = item.findtext("title") or ""
+            source_tag = item.findtext("source") or ""
+            press_name = extract_press_name(raw_title, source_tag)
+
+            if filter_major_only and press_name and not is_trusted_press(press_name):
+                continue
+
             link = (item.findtext("link") or "").strip()
             cleaned = clean_headline(raw_title)
             if not cleaned:
@@ -131,9 +176,10 @@ def fetch_rss_items(
             if prefix in seen:
                 continue
             seen.add(prefix)
+            display_source = press_name if press_name else source_label
             results.append(
                 {
-                    "source": source_label,
+                    "source": display_source,
                     "title": cleaned,
                     "url": link or "https://finance.naver.com/",
                 }
@@ -171,8 +217,8 @@ def fetch_naver_securities_news(
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw_html = resp.read().decode("utf-8", errors="replace")
 
-        pairs = re.findall(
-            r'<a href="(https://n\.news\.naver\.com/[^"]+)" class="sa_text_title[^"]*"[^>]*>\s*<strong class="sa_text_strong">([^<]+)</strong>',
+        items_raw = re.findall(
+            r'<a href="(https://n\.news\.naver\.com/[^"]+)" class="sa_text_title[^"]*"[^>]*>\s*<strong class="sa_text_strong">([^<]+)</strong>[\s\S]{1,600}?<div class="sa_text_press">([^<]+)</div>',
             raw_html,
         )
         us_keywords = (
@@ -189,12 +235,19 @@ def fetch_naver_securities_news(
             "테슬라",
         )
         seen = set()
-        for link, raw_title in pairs:
+        for link, raw_title, raw_press in items_raw:
+            press_name = html.unescape(raw_press).strip()
+            if press_name and not is_trusted_press(press_name):
+                continue
             cleaned = clean_headline(raw_title)
             if not cleaned or cleaned in seen:
                 continue
             seen.add(cleaned)
-            entry = {"source": "네이버증권", "title": cleaned, "url": html.unescape(link)}
+            entry = {
+                "source": press_name or "네이버증권",
+                "title": cleaned,
+                "url": html.unescape(link),
+            }
             if any(k in cleaned for k in us_keywords):
                 if len(us_list) < limit:
                     us_list.append(entry)
